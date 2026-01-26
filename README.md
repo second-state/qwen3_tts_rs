@@ -1,199 +1,151 @@
 # Qwen3 TTS - Rust Port
 
-A Rust implementation of the Qwen3 Text-to-Speech (TTS) model, ported from the original Python implementation.
+A Rust implementation of the Qwen3 Text-to-Speech (TTS) model inference, using the [tch](https://github.com/LaurentMazare/tch-rs) crate for PyTorch/libtorch bindings.
 
-## Overview
+## Prerequisites
 
-This crate provides a high-level API for generating speech from text using the Qwen3 TTS model family:
+### Install libtorch
 
-- **CustomVoice**: Use predefined speaker voices for consistent, reproducible speech synthesis
-- **VoiceDesign**: Control voice characteristics using natural language descriptions
-- **Base (VoiceClone)**: Clone voices from reference audio samples
+The `tch` crate (v0.23) requires **PyTorch/libtorch 2.10.0**. You can set it up in one of two ways.
 
-## Installation
+#### Option 1: Use pip-installed PyTorch (recommended)
 
-Add this to your `Cargo.toml`:
+Install PyTorch via pip and point the build system to it:
 
-```toml
-[dependencies]
-qwen3_tts = "0.1"
+```bash
+pip install torch==2.10.0
 ```
 
-## Quick Start
+Then set the following environment variables before building:
 
-### CustomVoice Model
-
-```rust
-use qwen3_tts::{Qwen3TTSModel, Language, Speaker};
-
-fn main() -> qwen3_tts::Result<()> {
-    // Load a pretrained model
-    let model = Qwen3TTSModel::from_pretrained("Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice")?;
-
-    // Generate speech with a predefined speaker
-    let output = model.generate_custom_voice(
-        "Hello, welcome to Qwen TTS!",
-        Speaker::new("Vivian"),
-        Language::English,
-        None,  // Optional instruction
-        None,  // Use default generation params
-    )?;
-
-    // Save the output
-    qwen3_tts::audio::write_wav_file("output.wav", &output.waveforms[0], output.sample_rate)?;
-
-    Ok(())
-}
+```bash
+export LIBTORCH_USE_PYTORCH=1
+export LD_LIBRARY_PATH=$(python3 -c "import torch; print(torch.__path__[0])")/lib:$LD_LIBRARY_PATH
 ```
 
-### Voice Cloning
+#### Option 2: Download libtorch directly
 
-```rust
-use qwen3_tts::{Qwen3TTSModel, AudioInput, Language};
+Linux x86 CPU:
 
-fn main() -> qwen3_tts::Result<()> {
-    let model = Qwen3TTSModel::from_pretrained("Qwen/Qwen3-TTS-12Hz-1.7B-Base")?;
-
-    // Clone voice from reference audio
-    let output = model.generate_voice_clone(
-        "This is synthesized in the cloned voice.",
-        Language::English,
-        AudioInput::from("reference.wav"),
-        Some("This is the reference transcript."),
-        false, // Use ICL mode (requires ref_text)
-        None,
-    )?;
-
-    qwen3_tts::audio::write_wav_file("cloned.wav", &output.waveforms[0], output.sample_rate)?;
-
-    Ok(())
-}
+```bash
+curl -LO https://download.pytorch.org/libtorch/cpu/libtorch-cxx11-abi-shared-with-deps-2.10.0%2Bcpu.zip
+unzip libtorch-cxx11-abi-shared-with-deps-2.10.0+cpu.zip
 ```
 
-### Voice Design
+Linux x86 with CUDA 12.8:
 
-```rust
-use qwen3_tts::{Qwen3TTSModel, Language, VoiceInstruction};
-
-fn main() -> qwen3_tts::Result<()> {
-    let model = Qwen3TTSModel::from_pretrained("Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign")?;
-
-    // Design voice with natural language
-    let output = model.generate_voice_design(
-        "Welcome to our service!",
-        VoiceInstruction::new("A warm, friendly female voice with moderate speed"),
-        Language::English,
-        None,
-    )?;
-
-    qwen3_tts::audio::write_wav_file("designed.wav", &output.waveforms[0], output.sample_rate)?;
-
-    Ok(())
-}
+```bash
+curl -LO https://download.pytorch.org/libtorch/cu128/libtorch-cxx11-abi-shared-with-deps-2.10.0%2Bcu128.zip
+unzip libtorch-cxx11-abi-shared-with-deps-2.10.0+cu128.zip
 ```
 
-## API Reference
+macOS on Apple Silicon (M-series):
 
-### Main Types
-
-| Type | Description |
-|------|-------------|
-| `Qwen3TTSModel` | Main TTS model wrapper with generation methods |
-| `Qwen3TTSTokenizer` | Speech tokenizer for encoding/decoding audio |
-| `AudioInput` | Flexible audio input (file path, URL, base64, waveform) |
-| `VoiceClonePromptItem` | Voice clone prompt for reusable voice profiles |
-| `GenerationParams` | Builder for generation parameters |
-| `Language` | Language specification (Auto, English, Chinese, etc.) |
-| `Speaker` | Speaker name for CustomVoice model |
-
-### Configuration Types
-
-| Type | Description |
-|------|-------------|
-| `Qwen3TTSConfig` | Main model configuration |
-| `GenerationConfig` | Default generation parameters |
-| `TokenizerType` | V1_25Hz or V2_12Hz tokenizer |
-| `TTSModelType` | Base, CustomVoice, or VoiceDesign |
-
-### Audio Utilities
-
-```rust
-use qwen3_tts::audio;
-
-// Load audio from various sources
-let samples = audio::load_audio(AudioInput::from("audio.wav"), 24000)?;
-
-// Write audio to file
-audio::write_wav_file("output.wav", &samples, 24000)?;
-
-// Resample audio
-let resampled = audio::resample(&samples, 16000, 24000)?;
-
-// Normalize audio to [-1, 1]
-audio::normalize_audio(&mut samples);
+```bash
+curl -LO https://download.pytorch.org/libtorch/cpu/libtorch-macos-arm64-2.10.0.zip
+unzip libtorch-macos-arm64-2.10.0.zip
 ```
 
-## Features
+Then set environment variables (add to `~/.zprofile` or `~/.bash_profile` to persist):
 
-- `async`: Enable async support with tokio for URL fetching
-
-```toml
-[dependencies]
-qwen3_tts = { version = "0.1", features = ["async"] }
+```bash
+export LIBTORCH=$(pwd)/libtorch
+export LD_LIBRARY_PATH=$(pwd)/libtorch/lib:$LD_LIBRARY_PATH
 ```
+
+### Download the model
+
+Download the Qwen3-TTS model weights. For example, the 0.6B CustomVoice model:
+
+```bash
+# Using huggingface-cli
+huggingface-cli download Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice --local-dir models/Qwen3-TTS-12Hz-0.6B-CustomVoice
+```
+
+### Generate tokenizer.json
+
+The Rust `tokenizers` crate requires a `tokenizer.json` file with the full tokenizer configuration (including the pre-tokenizer). Generate it from the Python tokenizer:
+
+```bash
+python3 -c "
+from transformers import AutoTokenizer
+tok = AutoTokenizer.from_pretrained('models/Qwen3-TTS-12Hz-0.6B-CustomVoice', trust_remote_code=True)
+tok.backend_tokenizer.save('models/Qwen3-TTS-12Hz-0.6B-CustomVoice/tokenizer.json')
+print('Saved tokenizer.json')
+"
+```
+
+## Build
+
+```bash
+git clone https://github.com/juntao/qwen3_tts_rs.git
+cd qwen3_tts_rs
+cargo build --release
+```
+
+If using pip-installed PyTorch (Option 1), build with:
+
+```bash
+LIBTORCH_USE_PYTORCH=1 cargo build --release
+```
+
+## Run
+
+```bash
+./target/release/qwen3_tts_demo <model_path> [text] [speaker] [language]
+```
+
+Example:
+
+```bash
+./target/release/qwen3_tts_demo \
+  models/Qwen3-TTS-12Hz-0.6B-CustomVoice \
+  "Hello world, this is a test." \
+  Vivian \
+  english
+```
+
+This generates an `output.wav` file with 24kHz audio.
+
+### Available speakers
+
+Vivian, Serena, Ryan, Ethan, Chloe, Leo, Isabella, Alexander, Sophia, Benjamin, and more. See the model's `config.json` for the full list.
+
+### Available languages
+
+`english`, `chinese`, and others defined in the model config.
 
 ## Architecture
 
-The crate is organized into the following modules:
+The inference pipeline follows the Python reference implementation:
 
 ```
-qwen3_tts/
-├── audio.rs      # Audio loading, processing, and I/O
-├── config.rs     # Configuration structs (mirrors Python configs)
-├── error.rs      # Error types with thiserror
-├── model.rs      # Qwen3TTSModel and generation methods
-├── tokenizer.rs  # Qwen3TTSTokenizer for encode/decode
-├── types.rs      # Common types (VoiceClonePromptItem, etc.)
-└── lib.rs        # Public exports
+Text → Tokenizer → Dual-stream Embeddings → TalkerModel (28-layer Transformer)
+                                                    ↓
+                                              codec_head → Code 0
+                                                    ↓
+                                        CodePredictor (5-layer Transformer) → Codes 1-15
+                                                    ↓
+                                              Vocoder → 24kHz Waveform
 ```
 
-## Comparison with Python API
+Key components:
 
-| Python | Rust |
-|--------|------|
-| `Qwen3TTSModel.from_pretrained()` | `Qwen3TTSModel::from_pretrained()` |
-| `model.generate_custom_voice()` | `model.generate_custom_voice()` |
-| `model.generate_voice_design()` | `model.generate_voice_design()` |
-| `model.generate_voice_clone()` | `model.generate_voice_clone()` |
-| `model.create_voice_clone_prompt()` | `model.create_voice_clone_prompt()` |
-| `VoiceClonePromptItem` | `VoiceClonePromptItem` |
-| `Qwen3TTSTokenizer` | `Qwen3TTSTokenizer` |
+| Module | Description |
+|--------|-------------|
+| `inference.rs` | TalkerModel + CodePredictor with dual-stream (text + codec) input |
+| `layers.rs` | RMSNorm, RoPE, GQA Attention with QK-Norm, SwiGLU MLP |
+| `vocoder.rs` | ResidualVectorQuantizer, 8-layer pre-transformer, ConvNeXt upsampler, Snake decoder |
+| `config.rs` | Model configuration deserialization from `config.json` |
+| `audio.rs` | WAV file I/O and audio processing utilities |
 
 ## Dependencies
 
-- **candle-core/candle-nn**: Tensor operations and neural network primitives
-- **tokenizers**: Text tokenization (HuggingFace tokenizers)
+- **tch** (0.23): PyTorch/libtorch bindings for tensor ops and neural network inference
+- **tokenizers** (0.21): HuggingFace tokenizers for BPE text tokenization
 - **hound**: WAV file reading/writing
-- **rubato**: Audio resampling
-- **serde/serde_json**: Configuration serialization
-- **safetensors**: Model weight loading
-- **hf-hub**: HuggingFace Hub integration
-- **thiserror**: Error handling
-
-## Status
-
-This is a Rust port of the Python Qwen3 TTS implementation. Current status:
-
-- [x] Project structure and Cargo.toml
-- [x] Configuration types (matching Python configs)
-- [x] Audio loading/processing utilities
-- [x] Error handling with thiserror
-- [x] VoiceClonePromptItem and types
-- [x] Qwen3TTSTokenizer API structure
-- [x] Qwen3TTSModel API structure
-- [ ] Full model inference (requires weight loading)
-- [ ] CUDA support
-- [ ] Streaming generation
+- **serde/serde_json**: Configuration deserialization
+- **thiserror/anyhow**: Error handling
 
 ## License
 
