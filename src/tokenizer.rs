@@ -197,7 +197,7 @@ impl Qwen3TTSTokenizer {
     }
 
     /// Load and preprocess audio for encoding.
-    fn prepare_audio(&self, audio: AudioInput) -> Result<Tensor> {
+    fn _prepare_audio(&self, audio: AudioInput) -> Result<Tensor> {
         let samples = load_audio(audio, self.config.input_sample_rate)?;
         let tensor = Tensor::from_slice(&samples)
             .view([1, samples.len() as i64])

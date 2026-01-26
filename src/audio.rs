@@ -23,7 +23,12 @@ pub enum AudioInput {
     /// URL to fetch audio from
     Url(String),
     /// Raw waveform samples with sample rate
-    Waveform { samples: Vec<f32>, sample_rate: u32 },
+    Waveform {
+        /// Audio sample values
+        samples: Vec<f32>,
+        /// Sample rate in Hz
+        sample_rate: u32,
+    },
 }
 
 impl AudioInput {
@@ -171,22 +176,12 @@ pub fn load_wav_bytes(bytes: &[u8]) -> Result<(Vec<f32>, u32)> {
     Ok((samples, sample_rate))
 }
 
-/// Fetch audio from a URL (blocking).
-#[cfg(feature = "async")]
-pub fn fetch_audio_from_url(url: &str) -> Result<Vec<u8>> {
-    let response = reqwest::blocking::get(url)
-        .map_err(|e| Qwen3TTSError::Network(format!("Failed to fetch URL: {}", e)))?;
-
-    let bytes = response.bytes()
-        .map_err(|e| Qwen3TTSError::Network(format!("Failed to read response: {}", e)))?;
-
-    Ok(bytes.to_vec())
-}
-
-#[cfg(not(feature = "async"))]
+/// Fetch audio from a URL.
+///
+/// Currently returns an error as URL fetching is not yet implemented.
 pub fn fetch_audio_from_url(_url: &str) -> Result<Vec<u8>> {
     Err(Qwen3TTSError::Unsupported(
-        "URL fetching requires the 'async' feature to be enabled".to_string()
+        "URL fetching is not yet implemented".to_string()
     ))
 }
 

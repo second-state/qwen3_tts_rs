@@ -121,7 +121,7 @@ impl VectorQuantization {
     pub fn from_weights(
         weights: &HashMap<String, Tensor>,
         prefix: &str,
-        dim: i64,
+        _dim: i64,
         device: Device,
     ) -> Option<Self> {
         let embedding_sum = weights.get(&format!("{}_codebook.embedding_sum", prefix))?
@@ -220,7 +220,7 @@ impl ResidualVectorQuantization {
 /// Residual vector quantizer with input/output projections.
 pub struct ResidualVectorQuantizer {
     /// Input projection (1x1 conv)
-    input_proj_weight: Option<Tensor>,
+    _input_proj_weight: Option<Tensor>,
     /// Output projection (1x1 conv)
     output_proj_weight: Option<Tensor>,
     /// RVQ layers
@@ -248,7 +248,7 @@ impl ResidualVectorQuantizer {
         let vq = ResidualVectorQuantization::from_weights(weights, &vq_prefix, n_q, dim, device)?;
 
         Some(Self {
-            input_proj_weight,
+            _input_proj_weight: input_proj_weight,
             output_proj_weight,
             vq,
         })
@@ -478,19 +478,19 @@ impl VocoderRMSNorm {
 /// Rotary position embeddings for vocoder transformer.
 pub struct VocoderRotaryEmbedding {
     inv_freq: Tensor,
-    dim: i64,
+    _dim: i64,
 }
 
 impl VocoderRotaryEmbedding {
     /// Create new rotary embeddings.
-    pub fn new(dim: i64, max_seq_len: i64, theta: f64, device: Device) -> Self {
+    pub fn new(dim: i64, _max_seq_len: i64, theta: f64, device: Device) -> Self {
         let half_dim = dim / 2;
         let inv_freq: Vec<f32> = (0..half_dim)
             .map(|i| 1.0 / (theta as f32).powf(2.0 * i as f32 / dim as f32))
             .collect();
         let inv_freq = Tensor::from_slice(&inv_freq).to_device(device);
 
-        Self { inv_freq, dim }
+        Self { inv_freq, _dim: dim }
     }
 
     /// Compute cos and sin for given sequence length.

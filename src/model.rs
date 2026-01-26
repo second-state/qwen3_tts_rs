@@ -140,13 +140,13 @@ impl GenerationParams {
 /// ```
 pub struct Qwen3TTSModel {
     /// Model configuration
-    config: Qwen3TTSConfig,
+    _config: Qwen3TTSConfig,
 
     /// Default generation configuration
     generate_defaults: GenerationConfig,
 
     /// Speech tokenizer for encoding/decoding audio
-    speech_tokenizer: Option<Qwen3TTSTokenizer>,
+    _speech_tokenizer: Option<Qwen3TTSTokenizer>,
 
     /// Computation device
     device: Device,
@@ -231,9 +231,9 @@ impl Qwen3TTSModel {
             .map(|lang_map| lang_map.keys().map(|k| k.to_lowercase()).collect());
 
         Ok(Self {
-            config,
+            _config: config,
             generate_defaults,
-            speech_tokenizer: None, // Would be loaded separately
+            _speech_tokenizer: None, // Would be loaded separately
             device,
             tts_model_type,
             tokenizer_type,
@@ -596,7 +596,7 @@ impl Qwen3TTSModel {
         &self,
         text: T,
         language: L,
-        prompt: &VoiceClonePromptItem,
+        _prompt: &VoiceClonePromptItem,
         params: Option<GenerationParams>,
     ) -> Result<GenerationOutput>
     where
@@ -682,9 +682,9 @@ mod tests {
     fn test_text_formatting() {
         let config = Qwen3TTSConfig::default();
         let model = Qwen3TTSModel {
-            config,
+            _config: config,
             generate_defaults: GenerationConfig::default(),
-            speech_tokenizer: None,
+            _speech_tokenizer: None,
             device: Device::Cpu,
             tts_model_type: TTSModelType::Base,
             tokenizer_type: TokenizerType::V2_12Hz,
