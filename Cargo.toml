@@ -2,10 +2,10 @@
 name = "qwen3_tts"
 version = "0.1.0"
 edition = "2021"
-authors = ["Qwen Team"]
+authors = ["Michael Yuan <michael@secondstate.io>"]
 description = "Rust port of Qwen3 TTS - Text-to-Speech model"
 license = "Apache-2.0"
-repository = "https://github.com/QwenLM/Qwen3-TTS"
+repository = "https://github.com/juntao/qwen3_tts_rs"
 keywords = ["tts", "text-to-speech", "qwen", "ai", "machine-learning"]
 categories = ["multimedia::audio", "science"]
 

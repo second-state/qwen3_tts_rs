@@ -1,5 +1,9 @@
 # Qwen3 TTS - Rust Port
 
+[![Crates.io](https://img.shields.io/crates/v/qwen3_tts.svg)](https://crates.io/crates/qwen3_tts)
+[![Documentation](https://docs.rs/qwen3_tts/badge.svg)](https://docs.rs/qwen3_tts)
+[![License](https://img.shields.io/crates/l/qwen3_tts.svg)](https://github.com/juntao/qwen3_tts_rs/blob/main/LICENSE)
+
 A Rust implementation of the Qwen3 Text-to-Speech (TTS) model inference, using the [tch](https://github.com/LaurentMazare/tch-rs) crate for PyTorch/libtorch bindings.
 
 ## Prerequisites
