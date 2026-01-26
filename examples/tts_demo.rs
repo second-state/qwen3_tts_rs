@@ -1,4 +1,4 @@
-// Copyright 2026 The Alibaba Qwen team.
+// Copyright 2026 Claude Code on behalf of Michael Yuan.
 // SPDX-License-Identifier: Apache-2.0
 
 //! Demo: Generate speech from text using Qwen3 TTS.
