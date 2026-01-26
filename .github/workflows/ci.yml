@@ -76,7 +76,7 @@ jobs:
           key: qwen3-tts-0.6b-customvoice-v1
 
       - name: Download model
-        run: huggingface-cli download Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice --local-dir models/Qwen3-TTS-12Hz-0.6B-CustomVoice
+        run: python3 -c "from huggingface_hub import snapshot_download; snapshot_download('Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice', local_dir='models/Qwen3-TTS-12Hz-0.6B-CustomVoice')"
 
       - name: Generate tokenizer.json
         run: |
