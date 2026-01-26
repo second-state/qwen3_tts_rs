@@ -83,12 +83,6 @@ cd qwen3_tts_rs
 cargo build --release
 ```
 
-If using pip-installed PyTorch (Option 1), build with:
-
-```bash
-LIBTORCH_USE_PYTORCH=1 cargo build --release
-```
-
 ## Run
 
 ### TTS Demo
