@@ -45,8 +45,11 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install PyTorch and HuggingFace tools
-        run: pip install torch==2.10.0 ${{ matrix.pip-extra-args }} huggingface_hub transformers
+      - name: Install PyTorch
+        run: pip install torch==2.10.0 ${{ matrix.pip-extra-args }}
+
+      - name: Install HuggingFace tools
+        run: pip install huggingface_hub transformers
 
       - name: Set library path (Linux)
         if: runner.os == 'Linux'
