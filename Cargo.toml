@@ -1,0 +1,50 @@
+[package]
+name = "qwen3_tts"
+version = "0.1.0"
+edition = "2021"
+authors = ["Qwen Team"]
+description = "Rust port of Qwen3 TTS - Text-to-Speech model"
+license = "Apache-2.0"
+repository = "https://github.com/QwenLM/Qwen3-TTS"
+keywords = ["tts", "text-to-speech", "qwen", "ai", "machine-learning"]
+categories = ["multimedia::audio", "science"]
+
+[dependencies]
+# PyTorch bindings via libtorch (0.23 for PyTorch 2.10.0 compatibility)
+tch = "0.23"
+
+# Tokenization
+tokenizers = "0.21"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Audio processing
+hound = "3.5"
+rubato = "0.16"
+
+# HTTP and file handling
+base64 = "0.22"
+url = "2.5"
+
+# Error handling
+thiserror = "2.0"
+anyhow = "1.0"
+
+# Logging
+tracing = "0.1"
+
+[features]
+default = []
+
+[dev-dependencies]
+tempfile = "3.14"
+
+[[bin]]
+name = "qwen3_tts_demo"
+path = "src/bin/demo.rs"
+
+[[bin]]
+name = "test_weights"
+path = "src/bin/test_weights.rs"
