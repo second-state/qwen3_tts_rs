@@ -78,7 +78,7 @@ impl Qwen3TTSWeights {
     }
 
     /// Get the root path for the model.
-    pub fn root(&self) -> nn::Path {
+    pub fn root(&self) -> nn::Path<'_> {
         self.vs.root()
     }
 }
@@ -113,7 +113,7 @@ impl SpeechTokenizerWeights {
     }
 
     /// Get the root path for the tokenizer.
-    pub fn root(&self) -> nn::Path {
+    pub fn root(&self) -> nn::Path<'_> {
         self.vs.root()
     }
 }

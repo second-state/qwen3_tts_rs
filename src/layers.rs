@@ -16,6 +16,7 @@ pub struct RMSNorm {
 }
 
 impl RMSNorm {
+    /// Create a new RMSNorm layer.
     pub fn new(vs: &nn::Path, hidden_size: i64, eps: f64) -> Self {
         let weight = vs.var("weight", &[hidden_size], nn::Init::Const(1.0));
         Self { weight, eps }
@@ -27,6 +28,7 @@ impl RMSNorm {
         Self { weight: weight.to_kind(Kind::Float), eps }
     }
 
+    /// Apply RMS normalization.
     pub fn forward(&self, x: &Tensor) -> Tensor {
         let x_f32 = x.to_kind(Kind::Float);
 
@@ -51,6 +53,7 @@ pub struct Linear {
 }
 
 impl Linear {
+    /// Create a new Linear layer with Xavier initialization.
     pub fn new(vs: &nn::Path, in_features: i64, out_features: i64) -> Self {
         // Use Xavier/Glorot uniform initialization as a reasonable default
         let std = (2.0 / (in_features + out_features) as f64).sqrt();
@@ -68,6 +71,7 @@ impl Linear {
         Self { weight: weight.to_kind(Kind::Float) }
     }
 
+    /// Apply linear transformation: x @ W^T.
     pub fn forward(&self, x: &Tensor) -> Tensor {
         x.matmul(&self.weight.tr())
     }
@@ -81,6 +85,7 @@ pub struct RotaryEmbedding {
 }
 
 impl RotaryEmbedding {
+    /// Create new rotary embeddings with the given dimension and max sequence length.
     pub fn new(dim: i64, max_seq_len: i64, theta: f64, device: tch::Device) -> Self {
         let half_dim = dim / 2;
 
@@ -161,6 +166,7 @@ pub struct Attention {
 }
 
 impl Attention {
+    /// Create a new grouped-query attention module.
     pub fn new(
         vs: &nn::Path,
         hidden_size: i64,
@@ -185,7 +191,7 @@ impl Attention {
     pub fn from_weights(
         weights: &HashMap<String, Tensor>,
         prefix: &str,
-        hidden_size: i64,
+        _hidden_size: i64,
         num_heads: i64,
         num_kv_heads: i64,
         head_dim: i64,
@@ -229,6 +235,7 @@ impl Attention {
         })
     }
 
+    /// Apply multi-head attention with rotary embeddings.
     pub fn forward(
         &self,
         hidden_states: &Tensor,
@@ -483,6 +490,7 @@ pub struct MLP {
 }
 
 impl MLP {
+    /// Create a new SwiGLU MLP.
     pub fn new(vs: &nn::Path, hidden_size: i64, intermediate_size: i64) -> Self {
         Self {
             gate_proj: Linear::new(&vs.sub("gate_proj"), hidden_size, intermediate_size),
@@ -517,6 +525,7 @@ impl MLP {
         })
     }
 
+    /// Apply SwiGLU MLP: down(silu(gate(x)) * up(x)).
     pub fn forward(&self, x: &Tensor) -> Tensor {
         // SwiGLU: down(silu(gate(x)) * up(x))
         let gate = self.gate_proj.forward(x).silu();
@@ -535,6 +544,7 @@ pub struct TransformerLayer {
 }
 
 impl TransformerLayer {
+    /// Create a new transformer decoder layer.
     pub fn new(
         vs: &nn::Path,
         hidden_size: i64,
@@ -561,7 +571,7 @@ impl TransformerLayer {
         weights: &HashMap<String, Tensor>,
         prefix: &str,
         hidden_size: i64,
-        intermediate_size: i64,
+        _intermediate_size: i64,
         num_heads: i64,
         num_kv_heads: i64,
         head_dim: i64,
@@ -600,6 +610,7 @@ impl TransformerLayer {
         })
     }
 
+    /// Apply the transformer layer (attention + MLP with residuals).
     pub fn forward(
         &self,
         hidden_states: &Tensor,

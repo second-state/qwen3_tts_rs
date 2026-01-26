@@ -35,7 +35,7 @@ pub struct CodePredictor {
     /// Rotary position embedding
     rotary_emb: RotaryEmbedding,
     /// Hidden size
-    hidden_size: i64,
+    _hidden_size: i64,
     /// Device
     device: Device,
 }
@@ -132,7 +132,7 @@ impl CodePredictor {
             norm,
             lm_heads,
             rotary_emb,
-            hidden_size,
+            _hidden_size: hidden_size,
             device,
         })
     }
