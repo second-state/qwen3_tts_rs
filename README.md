@@ -91,14 +91,18 @@ LIBTORCH_USE_PYTORCH=1 cargo build --release
 
 ## Run
 
+### TTS Demo
+
+Generate speech from text:
+
 ```bash
-./target/release/qwen3_tts_demo <model_path> [text] [speaker] [language]
+cargo run --example tts_demo --release -- <model_path> [text] [speaker] [language]
 ```
 
 Example:
 
 ```bash
-./target/release/qwen3_tts_demo \
+cargo run --example tts_demo --release -- \
   models/Qwen3-TTS-12Hz-0.6B-CustomVoice \
   "Hello world, this is a test." \
   Vivian \
@@ -107,6 +111,14 @@ Example:
 
 This generates an `output.wav` file with 24kHz audio.
 
+### Test Weight Loading
+
+Verify that model weights load correctly:
+
+```bash
+cargo run --example test_weights --release -- models/Qwen3-TTS-12Hz-0.6B-CustomVoice
+```
+
 ### Available speakers
 
 Vivian, Serena, Ryan, Ethan, Chloe, Leo, Isabella, Alexander, Sophia, Benjamin, and more. See the model's `config.json` for the full list.
@@ -114,6 +126,181 @@ Vivian, Serena, Ryan, Ethan, Chloe, Leo, Isabella, Alexander, Sophia, Benjamin, 
 ### Available languages
 
 `english`, `chinese`, and others defined in the model config.
+
+## API Usage
+
+Add `qwen3_tts` as a dependency in your `Cargo.toml`:
+
+```toml
+[dependencies]
+qwen3_tts = "0.1"
+tch = "0.23"
+```
+
+### Named Characters (CustomVoice)
+
+Generate speech using a predefined speaker voice:
+
+```rust
+use qwen3_tts::model::Qwen3TTSModel;
+use qwen3_tts::audio::write_wav_file;
+use qwen3_tts::types::{Language, GenerationParams};
+
+fn main() -> anyhow::Result<()> {
+    let model = Qwen3TTSModel::from_pretrained("models/Qwen3-TTS-12Hz-0.6B-CustomVoice")?;
+
+    let output = model.generate_custom_voice(
+        "Hello! Welcome to the Qwen3 TTS system.",
+        "Vivian",              // speaker name
+        Language::English,
+        None,                  // no instruct
+        None,                  // default generation params
+    )?;
+
+    let waveform = output.waveform().unwrap();
+    write_wav_file("output.wav", waveform, output.sample_rate)?;
+
+    Ok(())
+}
+```
+
+You can customize generation parameters:
+
+```rust
+let params = GenerationParams::default()
+    .temperature(0.8)
+    .top_k(30)
+    .max_new_tokens(4096);
+
+let output = model.generate_custom_voice(
+    "This uses custom generation parameters.",
+    "Ryan",
+    Language::Chinese,
+    None,
+    Some(params),
+)?;
+```
+
+To list available speakers and languages:
+
+```rust
+if let Some(speakers) = model.get_supported_speakers() {
+    println!("Speakers: {:?}", speakers);
+}
+if let Some(languages) = model.get_supported_languages() {
+    println!("Languages: {:?}", languages);
+}
+```
+
+### Voice Cloning
+
+Clone a voice from reference audio. Two modes are available:
+
+**X-vector only mode** -- uses only the speaker embedding from the reference audio:
+
+```rust
+use qwen3_tts::types::AudioInput;
+
+let output = model.generate_voice_clone(
+    "This sentence will be spoken in the cloned voice.",
+    Language::English,
+    AudioInput::FilePath("reference.wav".into()),
+    None,                  // no ref_text needed for x-vector mode
+    true,                  // x_vector_only_mode
+    None,
+)?;
+```
+
+**In-Context Learning (ICL) mode** -- conditions on both the reference audio and its transcript for higher fidelity cloning:
+
+```rust
+let output = model.generate_voice_clone(
+    "This sentence will be spoken in the cloned voice.",
+    Language::English,
+    AudioInput::FilePath("reference.wav".into()),
+    Some("Transcript of the reference audio."),  // required for ICL mode
+    false,                 // x_vector_only_mode = false enables ICL
+    None,
+)?;
+```
+
+To reuse a voice clone prompt across multiple generations:
+
+```rust
+let prompt = model.create_voice_clone_prompt(
+    AudioInput::FilePath("reference.wav".into()),
+    Some("Transcript of the reference audio."),
+    false,
+)?;
+
+let output1 = model.generate_voice_clone_with_prompt(
+    "First sentence in the cloned voice.",
+    Language::English,
+    &prompt,
+    None,
+)?;
+
+let output2 = model.generate_voice_clone_with_prompt(
+    "Second sentence in the same voice.",
+    Language::English,
+    &prompt,
+    None,
+)?;
+```
+
+Audio can be loaded from multiple sources:
+
+```rust
+// From a file path
+let audio = AudioInput::FilePath("/path/to/audio.wav".into());
+
+// From a base64-encoded string
+let audio = AudioInput::Base64(base64_string);
+
+// From raw samples
+let audio = AudioInput::from_waveform(samples, 24000);
+```
+
+### Voice Design
+
+Generate speech with a natural language description of the desired voice. This requires the VoiceDesign model variant:
+
+```rust
+use qwen3_tts::types::VoiceInstruction;
+
+let model = Qwen3TTSModel::from_pretrained("models/Qwen3-TTS-12Hz-VoiceDesign")?;
+
+let output = model.generate_voice_design(
+    "Welcome to our customer support line.",
+    VoiceInstruction::new("A warm, friendly female voice with moderate speed"),
+    Language::English,
+    None,
+)?;
+
+let waveform = output.waveform().unwrap();
+write_wav_file("designed_voice.wav", waveform, output.sample_rate)?;
+```
+
+### Audio Utilities
+
+The `audio` module provides helpers for reading and writing audio:
+
+```rust
+use qwen3_tts::audio::{write_wav_file, write_wav_bytes, load_audio, resample};
+use qwen3_tts::types::AudioInput;
+
+// Write WAV to file
+write_wav_file("output.wav", &samples, 24000)?;
+
+// Write WAV to in-memory bytes
+let wav_bytes = write_wav_bytes(&samples, 24000)?;
+
+// Load and resample audio to a target sample rate
+let samples = load_audio(AudioInput::FilePath("input.wav".into()), 24000)?;
+
+// Resample between sample rates
+let resampled = resample(&samples, 44100, 24000)?;
+```
 
 ## Architecture
 
