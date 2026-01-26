@@ -2,6 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! Test weight loading from safetensors files.
+//!
+//! Usage:
+//!   cargo run --example test_weights -- <model_path>
+//!
+//! Example:
+//!   cargo run --example test_weights -- ./models/Qwen3-TTS-12Hz-0.6B-CustomVoice
 
 use std::path::Path;
 use tch::Tensor;
@@ -29,20 +35,37 @@ fn main() -> anyhow::Result<()> {
         let size: Vec<i64> = tensor.size();
         let kind = tensor.kind();
         let numel: i64 = tensor.numel() as i64;
-        println!("  {:2}. {} {:?} {:?} ({} elements)", i + 1, name, size, kind, numel);
+        println!(
+            "  {:2}. {} {:?} {:?} ({} elements)",
+            i + 1,
+            name,
+            size,
+            kind,
+            numel
+        );
     }
 
     // Calculate total parameters
     let total_params: i64 = tensors.iter().map(|(_, t)| t.numel() as i64).sum();
-    println!("\nTotal parameters: {} ({:.2}M)", total_params, total_params as f64 / 1_000_000.0);
+    println!(
+        "\nTotal parameters: {} ({:.2}M)",
+        total_params,
+        total_params as f64 / 1_000_000.0
+    );
 
     // Load speech tokenizer weights
     let tokenizer_safetensors = model_path.join("speech_tokenizer/model.safetensors");
     if tokenizer_safetensors.exists() {
-        println!("\n---\nLoading speech tokenizer weights from: {:?}", tokenizer_safetensors);
+        println!(
+            "\n---\nLoading speech tokenizer weights from: {:?}",
+            tokenizer_safetensors
+        );
 
         let tokenizer_tensors = Tensor::read_safetensors(&tokenizer_safetensors)?;
-        println!("Loaded {} tensors from speech tokenizer", tokenizer_tensors.len());
+        println!(
+            "Loaded {} tensors from speech tokenizer",
+            tokenizer_tensors.len()
+        );
 
         // Print first 10 tensor names and shapes
         println!("\nFirst 10 speech tokenizer tensors:");
@@ -52,29 +75,37 @@ fn main() -> anyhow::Result<()> {
             println!("  {:2}. {} {:?} {:?}", i + 1, name, size, kind);
         }
 
-        let tokenizer_params: i64 = tokenizer_tensors.iter().map(|(_, t)| t.numel() as i64).sum();
-        println!("\nSpeech tokenizer parameters: {} ({:.2}M)", tokenizer_params, tokenizer_params as f64 / 1_000_000.0);
+        let tokenizer_params: i64 = tokenizer_tensors
+            .iter()
+            .map(|(_, t)| t.numel() as i64)
+            .sum();
+        println!(
+            "\nSpeech tokenizer parameters: {} ({:.2}M)",
+            tokenizer_params,
+            tokenizer_params as f64 / 1_000_000.0
+        );
     }
 
     // Test basic tensor operation
     println!("\n---\nTesting basic tensor operations...");
 
-    // Get the embedding layer
     let embed_name = "model.embed_tokens.weight";
     if let Some((_, embed_tensor)) = tensors.iter().find(|(n, _)| n == embed_name) {
         let embed_size = embed_tensor.size();
         println!("Embedding tensor shape: {:?}", embed_size);
 
-        // Get a single embedding vector
         let token_id = 100i64;
         let embedding = embed_tensor.get(token_id);
         let emb_size = embedding.size();
         println!("Embedding for token {}: shape {:?}", token_id, emb_size);
 
-        // Compute some stats
         let mean = embedding.mean(tch::Kind::Float);
         let std = embedding.std(false);
-        println!("  Mean: {:.6}, Std: {:.6}", f64::try_from(mean)?, f64::try_from(std)?);
+        println!(
+            "  Mean: {:.6}, Std: {:.6}",
+            f64::try_from(mean)?,
+            f64::try_from(std)?
+        );
     }
 
     println!("\nWeight loading test completed successfully!");

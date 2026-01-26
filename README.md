@@ -91,14 +91,18 @@ LIBTORCH_USE_PYTORCH=1 cargo build --release
 
 ## Run
 
+### TTS Demo
+
+Generate speech from text:
+
 ```bash
-./target/release/qwen3_tts_demo <model_path> [text] [speaker] [language]
+cargo run --example tts_demo --release -- <model_path> [text] [speaker] [language]
 ```
 
 Example:
 
 ```bash
-./target/release/qwen3_tts_demo \
+cargo run --example tts_demo --release -- \
   models/Qwen3-TTS-12Hz-0.6B-CustomVoice \
   "Hello world, this is a test." \
   Vivian \
@@ -106,6 +110,14 @@ Example:
 ```
 
 This generates an `output.wav` file with 24kHz audio.
+
+### Test Weight Loading
+
+Verify that model weights load correctly:
+
+```bash
+cargo run --example test_weights --release -- models/Qwen3-TTS-12Hz-0.6B-CustomVoice
+```
 
 ### Available speakers
 
