@@ -237,12 +237,10 @@ impl Qwen3TTSTokenizer {
         let mut waveforms = Vec::with_capacity(audio_inputs.len());
         for input in audio_inputs {
             let input = match (input, sr) {
-                (AudioInput::Waveform { samples, .. }, Some(override_sr)) => {
-                    AudioInput::Waveform {
-                        samples,
-                        sample_rate: override_sr,
-                    }
-                }
+                (AudioInput::Waveform { samples, .. }, Some(override_sr)) => AudioInput::Waveform {
+                    samples,
+                    sample_rate: override_sr,
+                },
                 (other, _) => other,
             };
             let samples = load_audio(input, self.config.input_sample_rate)?;
@@ -270,8 +268,7 @@ impl Qwen3TTSTokenizer {
             match self.tokenizer_type {
                 TokenizerType::V1_25Hz => {
                     // V1: codes shape (T,), xvector shape (D,), ref_mel shape (T, M)
-                    let codes =
-                        Tensor::zeros([code_len as i64], (Kind::Int64, self.device));
+                    let codes = Tensor::zeros([code_len as i64], (Kind::Int64, self.device));
                     audio_codes.push(codes);
 
                     if let Some(ref mut xvecs) = xvectors {
@@ -280,10 +277,7 @@ impl Qwen3TTSTokenizer {
                     }
 
                     if let Some(ref mut mels) = ref_mels {
-                        let mel = Tensor::zeros(
-                            [code_len as i64, 80],
-                            (Kind::Float, self.device),
-                        );
+                        let mel = Tensor::zeros([code_len as i64, 80], (Kind::Float, self.device));
                         mels.push(mel);
                     }
                 }

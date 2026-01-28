@@ -1,7 +1,6 @@
 # Qwen3 TTS - Rust Port
 
 [![Crates.io](https://img.shields.io/crates/v/qwen3_tts.svg)](https://crates.io/crates/qwen3_tts)
-[![Documentation](https://docs.rs/qwen3_tts/badge.svg)](https://docs.rs/qwen3_tts)
 [![License](https://img.shields.io/crates/l/qwen3_tts.svg)](https://github.com/juntao/qwen3_tts_rs/blob/main/LICENSE)
 
 A Rust implementation of the Qwen3 Text-to-Speech (TTS) model inference, using the [tch](https://github.com/LaurentMazare/tch-rs) crate for PyTorch/libtorch bindings.
@@ -59,23 +58,30 @@ export LD_LIBRARY_PATH=$(pwd)/libtorch/lib:$LD_LIBRARY_PATH
 
 ### Download the model
 
-Download the Qwen3-TTS model weights. For example, the 0.6B CustomVoice model:
+Download the Qwen3-TTS model weights. For speech synthesis with named speakers (CustomVoice):
 
 ```bash
-# Using huggingface-cli
 huggingface-cli download Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice --local-dir models/Qwen3-TTS-12Hz-0.6B-CustomVoice
+```
+
+For voice cloning from reference audio (Base):
+
+```bash
+huggingface-cli download Qwen/Qwen3-TTS-12Hz-0.6B-Base --local-dir models/Qwen3-TTS-12Hz-0.6B-Base
 ```
 
 ### Generate tokenizer.json
 
-The Rust `tokenizers` crate requires a `tokenizer.json` file with the full tokenizer configuration (including the pre-tokenizer). Generate it from the Python tokenizer:
+The Rust `tokenizers` crate requires a `tokenizer.json` file with the full tokenizer configuration (including the pre-tokenizer). Generate it from the Python tokenizer for each model you downloaded:
 
 ```bash
 python3 -c "
 from transformers import AutoTokenizer
-tok = AutoTokenizer.from_pretrained('models/Qwen3-TTS-12Hz-0.6B-CustomVoice', trust_remote_code=True)
-tok.backend_tokenizer.save('models/Qwen3-TTS-12Hz-0.6B-CustomVoice/tokenizer.json')
-print('Saved tokenizer.json')
+for model in ['Qwen3-TTS-12Hz-0.6B-CustomVoice', 'Qwen3-TTS-12Hz-0.6B-Base']:
+    path = f'models/{model}'
+    tok = AutoTokenizer.from_pretrained(path, trust_remote_code=True)
+    tok.backend_tokenizer.save(f'{path}/tokenizer.json')
+    print(f'Saved {path}/tokenizer.json')
 "
 ```
 
@@ -109,6 +115,39 @@ cargo run --example tts_demo --release -- \
 
 This generates an `output.wav` file with 24kHz audio.
 
+### Voice Clone Demo
+
+Clone a voice from a reference audio file using the Base model:
+
+```bash
+cargo run --example voice_clone_demo --release -- <model_path> <ref_audio> [text] [language] [ref_text]
+```
+
+**X-vector only mode** (no reference text):
+
+```bash
+cargo run --example voice_clone_demo --release -- \
+  models/Qwen3-TTS-12Hz-0.6B-Base \
+  reference.wav \
+  "Hello world, this is a voice cloning test." \
+  english
+```
+
+**ICL mode** (with reference text, higher quality):
+
+```bash
+cargo run --example voice_clone_demo --release -- \
+  models/Qwen3-TTS-12Hz-0.6B-Base \
+  reference.wav \
+  "Hello world, this is a voice cloning test." \
+  english \
+  "This is the transcript of the reference audio."
+```
+
+When a reference text transcript is provided as the 5th argument, the demo uses **ICL (In-Context Learning) mode**, which encodes the reference audio into codec tokens and conditions generation on both the speaker embedding and the reference audio/text. This typically produces higher fidelity voice cloning compared to x-vector only mode.
+
+Output is written to `output_voice_clone.wav`.
+
 ### Test Weight Loading
 
 Verify that model weights load correctly:
@@ -117,9 +156,9 @@ Verify that model weights load correctly:
 cargo run --example test_weights --release -- models/Qwen3-TTS-12Hz-0.6B-CustomVoice
 ```
 
-### Available speakers
+### Available speakers (CustomVoice 0.6B)
 
-Vivian, Serena, Ryan, Ethan, Chloe, Leo, Isabella, Alexander, Sophia, Benjamin, and more. See the model's `config.json` for the full list.
+Vivian, Serena, Ryan, Aiden, Uncle_fu, Ono_anna, Sohee, Eric, Dylan. See the model's `config.json` `spk_id` field for the full list.
 
 ### Available languages
 
@@ -140,143 +179,139 @@ tch = "0.23"
 Generate speech using a predefined speaker voice:
 
 ```rust
-use qwen3_tts::model::Qwen3TTSModel;
 use qwen3_tts::audio::write_wav_file;
-use qwen3_tts::types::{Language, GenerationParams};
+use qwen3_tts::inference::TTSInference;
+use std::path::Path;
+use tch::Device;
 
 fn main() -> anyhow::Result<()> {
-    let model = Qwen3TTSModel::from_pretrained("models/Qwen3-TTS-12Hz-0.6B-CustomVoice")?;
-
-    let output = model.generate_custom_voice(
-        "Hello! Welcome to the Qwen3 TTS system.",
-        "Vivian",              // speaker name
-        Language::English,
-        None,                  // no instruct
-        None,                  // default generation params
+    let inference = TTSInference::new(
+        Path::new("models/Qwen3-TTS-12Hz-0.6B-CustomVoice"),
+        Device::Cpu,
     )?;
 
-    let waveform = output.waveform().unwrap();
-    write_wav_file("output.wav", waveform, output.sample_rate)?;
+    let (waveform, sample_rate) = inference.generate(
+        "Hello! Welcome to the Qwen3 TTS system.",
+        "Vivian",   // speaker name
+        "english",  // language
+    )?;
 
+    write_wav_file("output.wav", &waveform, sample_rate)?;
     Ok(())
 }
 ```
 
-You can customize generation parameters:
+You can customize generation parameters (temperature, top_k, max codes):
 
 ```rust
-let params = GenerationParams::default()
-    .temperature(0.8)
-    .top_k(30)
-    .max_new_tokens(4096);
-
-let output = model.generate_custom_voice(
+let (waveform, sample_rate) = inference.generate_with_params(
     "This uses custom generation parameters.",
     "Ryan",
-    Language::Chinese,
-    None,
-    Some(params),
+    "english",
+    0.8,   // temperature
+    30,    // top_k
+    4096,  // max_codes
 )?;
 ```
 
-To list available speakers and languages:
+### Voice Cloning (X-vector)
+
+Clone a voice from reference audio using the Base model with `TTSInference` and `SpeakerEncoder`:
 
 ```rust
-if let Some(speakers) = model.get_supported_speakers() {
-    println!("Speakers: {:?}", speakers);
+use qwen3_tts::audio::{load_wav_file, resample, write_wav_file};
+use qwen3_tts::inference::TTSInference;
+use qwen3_tts::speaker_encoder::SpeakerEncoder;
+use std::path::Path;
+use tch::Device;
+
+fn main() -> anyhow::Result<()> {
+    let device = Device::Cpu;
+    let model_path = Path::new("models/Qwen3-TTS-12Hz-0.6B-Base");
+
+    // Load model and speaker encoder
+    let inference = TTSInference::new(model_path, device)?;
+    let se_config = inference.config().speaker_encoder_config.clone();
+    let speaker_encoder = SpeakerEncoder::load(inference.weights(), &se_config, device)?;
+
+    // Load and resample reference audio to 24kHz
+    let (samples, sr) = load_wav_file("reference.wav")?;
+    let samples = if sr != se_config.sample_rate {
+        resample(&samples, sr, se_config.sample_rate)?
+    } else {
+        samples
+    };
+
+    // Extract speaker embedding and generate speech
+    let speaker_embedding = speaker_encoder.extract_embedding(&samples)?;
+    let (waveform, sample_rate) = inference.generate_with_xvector(
+        "Hello, this is a voice cloning test.",
+        &speaker_embedding,
+        "english",
+        0.9,   // temperature
+        50,    // top_k
+        2048,  // max_codes
+    )?;
+
+    write_wav_file("output.wav", &waveform, sample_rate)?;
+    Ok(())
 }
-if let Some(languages) = model.get_supported_languages() {
-    println!("Languages: {:?}", languages);
+```
+
+### Voice Cloning (ICL - Higher Quality)
+
+For higher fidelity voice cloning, use ICL mode which conditions on both the speaker embedding and reference audio codec tokens with their text transcription:
+
+```rust
+use qwen3_tts::audio::{load_wav_file, resample, write_wav_file};
+use qwen3_tts::audio_encoder::AudioEncoder;
+use qwen3_tts::inference::TTSInference;
+use qwen3_tts::speaker_encoder::SpeakerEncoder;
+use std::path::Path;
+use tch::Device;
+
+fn main() -> anyhow::Result<()> {
+    let device = Device::Cpu;
+    let model_path = Path::new("models/Qwen3-TTS-12Hz-0.6B-Base");
+
+    // Load model and speaker encoder
+    let inference = TTSInference::new(model_path, device)?;
+    let se_config = inference.config().speaker_encoder_config.clone();
+    let speaker_encoder = SpeakerEncoder::load(inference.weights(), &se_config, device)?;
+
+    // Load and resample reference audio to 24kHz
+    let (samples, sr) = load_wav_file("reference.wav")?;
+    let samples = if sr != se_config.sample_rate {
+        resample(&samples, sr, se_config.sample_rate)?
+    } else {
+        samples
+    };
+
+    // Extract speaker embedding
+    let speaker_embedding = speaker_encoder.extract_embedding(&samples)?;
+
+    // Encode reference audio to codec tokens
+    let speech_tokenizer_path = model_path
+        .join("speech_tokenizer")
+        .join("model.safetensors");
+    let audio_encoder = AudioEncoder::load(&speech_tokenizer_path, device)?;
+    let ref_codes = audio_encoder.encode(&samples)?;
+
+    // Generate with ICL (reference text + codec tokens + speaker embedding)
+    let (waveform, sample_rate) = inference.generate_with_icl(
+        "Hello, this is a voice cloning test.",
+        "This is the transcript of the reference audio.",
+        &ref_codes,
+        &speaker_embedding,
+        "english",
+        0.9,   // temperature
+        50,    // top_k
+        2048,  // max_codes
+    )?;
+
+    write_wav_file("output.wav", &waveform, sample_rate)?;
+    Ok(())
 }
-```
-
-### Voice Cloning
-
-Clone a voice from reference audio. Two modes are available:
-
-**X-vector only mode** -- uses only the speaker embedding from the reference audio:
-
-```rust
-use qwen3_tts::types::AudioInput;
-
-let output = model.generate_voice_clone(
-    "This sentence will be spoken in the cloned voice.",
-    Language::English,
-    AudioInput::FilePath("reference.wav".into()),
-    None,                  // no ref_text needed for x-vector mode
-    true,                  // x_vector_only_mode
-    None,
-)?;
-```
-
-**In-Context Learning (ICL) mode** -- conditions on both the reference audio and its transcript for higher fidelity cloning:
-
-```rust
-let output = model.generate_voice_clone(
-    "This sentence will be spoken in the cloned voice.",
-    Language::English,
-    AudioInput::FilePath("reference.wav".into()),
-    Some("Transcript of the reference audio."),  // required for ICL mode
-    false,                 // x_vector_only_mode = false enables ICL
-    None,
-)?;
-```
-
-To reuse a voice clone prompt across multiple generations:
-
-```rust
-let prompt = model.create_voice_clone_prompt(
-    AudioInput::FilePath("reference.wav".into()),
-    Some("Transcript of the reference audio."),
-    false,
-)?;
-
-let output1 = model.generate_voice_clone_with_prompt(
-    "First sentence in the cloned voice.",
-    Language::English,
-    &prompt,
-    None,
-)?;
-
-let output2 = model.generate_voice_clone_with_prompt(
-    "Second sentence in the same voice.",
-    Language::English,
-    &prompt,
-    None,
-)?;
-```
-
-Audio can be loaded from multiple sources:
-
-```rust
-// From a file path
-let audio = AudioInput::FilePath("/path/to/audio.wav".into());
-
-// From a base64-encoded string
-let audio = AudioInput::Base64(base64_string);
-
-// From raw samples
-let audio = AudioInput::from_waveform(samples, 24000);
-```
-
-### Voice Design
-
-Generate speech with a natural language description of the desired voice. This requires the VoiceDesign model variant:
-
-```rust
-use qwen3_tts::types::VoiceInstruction;
-
-let model = Qwen3TTSModel::from_pretrained("models/Qwen3-TTS-12Hz-VoiceDesign")?;
-
-let output = model.generate_voice_design(
-    "Welcome to our customer support line.",
-    VoiceInstruction::new("A warm, friendly female voice with moderate speed"),
-    Language::English,
-    None,
-)?;
-
-let waveform = output.waveform().unwrap();
-write_wav_file("designed_voice.wav", waveform, output.sample_rate)?;
 ```
 
 ### Audio Utilities
@@ -284,17 +319,13 @@ write_wav_file("designed_voice.wav", waveform, output.sample_rate)?;
 The `audio` module provides helpers for reading and writing audio:
 
 ```rust
-use qwen3_tts::audio::{write_wav_file, write_wav_bytes, load_audio, resample};
-use qwen3_tts::types::AudioInput;
+use qwen3_tts::audio::{load_wav_file, resample, write_wav_file};
+
+// Read a WAV file
+let (samples, sample_rate) = load_wav_file("input.wav")?;
 
 // Write WAV to file
-write_wav_file("output.wav", &samples, 24000)?;
-
-// Write WAV to in-memory bytes
-let wav_bytes = write_wav_bytes(&samples, 24000)?;
-
-// Load and resample audio to a target sample rate
-let samples = load_audio(AudioInput::FilePath("input.wav".into()), 24000)?;
+write_wav_file("output.wav", &samples, sample_rate)?;
 
 // Resample between sample rates
 let resampled = resample(&samples, 44100, 24000)?;
@@ -319,6 +350,8 @@ Key components:
 | Module | Description |
 |--------|-------------|
 | `inference.rs` | TalkerModel + CodePredictor with dual-stream (text + codec) input |
+| `speaker_encoder.rs` | ECAPA-TDNN speaker encoder for extracting x-vectors from reference audio |
+| `audio_encoder.rs` | Mimi/SEANet speech tokenizer encoder for encoding audio to codec tokens (ICL mode) |
 | `layers.rs` | RMSNorm, RoPE, GQA Attention with QK-Norm, SwiGLU MLP |
 | `vocoder.rs` | ResidualVectorQuantizer, 8-layer pre-transformer, ConvNeXt upsampler, Snake decoder |
 | `config.rs` | Model configuration deserialization from `config.json` |

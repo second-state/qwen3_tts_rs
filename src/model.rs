@@ -100,8 +100,12 @@ impl GenerationParams {
             top_k: self.top_k.unwrap_or(defaults.top_k),
             top_p: self.top_p.unwrap_or(defaults.top_p),
             temperature: self.temperature.unwrap_or(defaults.temperature),
-            repetition_penalty: self.repetition_penalty.unwrap_or(defaults.repetition_penalty),
-            subtalker_dosample: self.subtalker_dosample.unwrap_or(defaults.subtalker_dosample),
+            repetition_penalty: self
+                .repetition_penalty
+                .unwrap_or(defaults.repetition_penalty),
+            subtalker_dosample: self
+                .subtalker_dosample
+                .unwrap_or(defaults.subtalker_dosample),
             subtalker_top_k: self.subtalker_top_k.unwrap_or(defaults.subtalker_top_k),
             subtalker_top_p: self.subtalker_top_p.unwrap_or(defaults.subtalker_top_p),
             subtalker_temperature: self
@@ -357,7 +361,7 @@ impl Qwen3TTSModel {
             )));
         }
 
-        let texts = vec![text.as_ref().to_string()];
+        let texts = [text.as_ref().to_string()];
         let speakers = vec![speaker.into()];
         let languages = vec![language.into()];
 
@@ -426,8 +430,8 @@ impl Qwen3TTSModel {
             )));
         }
 
-        let texts = vec![text.as_ref().to_string()];
-        let instructs = vec![instruct.into()];
+        let texts = [text.as_ref().to_string()];
+        let instructs = [instruct.into()];
         let languages = vec![language.into()];
 
         self.validate_languages(&languages)?;
@@ -551,7 +555,7 @@ impl Qwen3TTSModel {
             )));
         }
 
-        let texts = vec![text.as_ref().to_string()];
+        let texts = [text.as_ref().to_string()];
         let languages = vec![language.into()];
 
         self.validate_languages(&languages)?;
@@ -611,7 +615,7 @@ impl Qwen3TTSModel {
             )));
         }
 
-        let texts = vec![text.as_ref().to_string()];
+        let texts = [text.as_ref().to_string()];
         let languages = vec![language.into()];
 
         self.validate_languages(&languages)?;

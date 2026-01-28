@@ -96,7 +96,7 @@ jobs:
             "Hello! This is a test of the Qwen3 TTS system running on CI." \
             Vivian \
             english
-          mv output.wav output_english.wav
+          mv output.wav vivian_english.wav
 
       - name: Generate Chinese audio
         env:
@@ -107,7 +107,59 @@ jobs:
             "你好！这是Qwen3语音合成系统的持续集成测试。" \
             Vivian \
             chinese
-          mv output.wav output_chinese.wav
+          mv output.wav vivian_chinese.wav
+
+      - name: Generate Ryan reference audio
+        env:
+          LIBTORCH_USE_PYTORCH: "1"
+        run: |
+          cargo run --example tts_demo --release -- \
+            models/Qwen3-TTS-12Hz-0.6B-CustomVoice \
+            "The quick brown fox jumps over the lazy dog." \
+            Ryan \
+            english
+          mv output.wav ryan_reference.wav
+
+      - name: Cache Base model weights
+        uses: actions/cache@v4
+        with:
+          path: models/Qwen3-TTS-12Hz-0.6B-Base
+          key: qwen3-tts-0.6b-base-v1
+
+      - name: Download Base model
+        run: python3 -c "from huggingface_hub import snapshot_download; snapshot_download('Qwen/Qwen3-TTS-12Hz-0.6B-Base', local_dir='models/Qwen3-TTS-12Hz-0.6B-Base')"
+
+      - name: Generate Base model tokenizer.json
+        run: |
+          python3 -c "
+          from transformers import AutoTokenizer
+          tok = AutoTokenizer.from_pretrained('models/Qwen3-TTS-12Hz-0.6B-Base', trust_remote_code=True)
+          tok.backend_tokenizer.save('models/Qwen3-TTS-12Hz-0.6B-Base/tokenizer.json')
+          print('Saved tokenizer.json')
+          "
+
+      - name: Voice clone from Ryan reference
+        env:
+          LIBTORCH_USE_PYTORCH: "1"
+        run: |
+          cargo run --example voice_clone_demo --release -- \
+            models/Qwen3-TTS-12Hz-0.6B-Base \
+            ryan_reference.wav \
+            "This is a voice cloning test using Ryan as the reference speaker." \
+            english
+          mv output_voice_clone.wav output_ryan_clone.wav
+
+      - name: Voice clone (ICL mode) from Ryan reference
+        env:
+          LIBTORCH_USE_PYTORCH: "1"
+        run: |
+          cargo run --example voice_clone_demo --release -- \
+            models/Qwen3-TTS-12Hz-0.6B-Base \
+            ryan_reference.wav \
+            "This is a voice cloning test with in-context learning." \
+            english \
+            "The quick brown fox jumps over the lazy dog."
+          mv output_voice_clone.wav output_ryan_clone_icl.wav
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -115,5 +167,9 @@ jobs:
           name: qwen3-tts-${{ matrix.os }}-${{ runner.arch }}
           path: |
             target/release/examples/tts_demo
-            output_english.wav
-            output_chinese.wav
+            target/release/examples/voice_clone_demo
+            vivian_english.wav
+            vivian_chinese.wav
+            ryan_reference.wav
+            output_ryan_clone.wav
+            output_ryan_clone_icl.wav

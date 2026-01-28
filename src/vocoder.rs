@@ -84,11 +84,7 @@ pub struct EuclideanCodebook {
 
 impl EuclideanCodebook {
     /// Create a new codebook from weights.
-    pub fn from_weights(
-        embedding_sum: Tensor,
-        cluster_usage: Tensor,
-        dim: i64,
-    ) -> Self {
+    pub fn from_weights(embedding_sum: Tensor, cluster_usage: Tensor, dim: i64) -> Self {
         Self {
             embedding_sum,
             cluster_usage,
@@ -124,16 +120,19 @@ impl VectorQuantization {
         _dim: i64,
         device: Device,
     ) -> Option<Self> {
-        let embedding_sum = weights.get(&format!("{}_codebook.embedding_sum", prefix))?
+        let embedding_sum = weights
+            .get(&format!("{}_codebook.embedding_sum", prefix))?
             .to_device(device);
-        let cluster_usage = weights.get(&format!("{}_codebook.cluster_usage", prefix))?
+        let cluster_usage = weights
+            .get(&format!("{}_codebook.cluster_usage", prefix))?
             .to_device(device);
 
         let codebook_dim = embedding_sum.size()[1];
         let codebook = EuclideanCodebook::from_weights(embedding_sum, cluster_usage, codebook_dim);
 
         // Project out is a 1x1 conv: [out_dim, in_dim, 1]
-        let project_out_weight = weights.get(&format!("{}project_out.weight", prefix))
+        let project_out_weight = weights
+            .get(&format!("{}project_out.weight", prefix))
             .map(|w| w.squeeze_dim(-1).to_device(device)); // Remove the kernel dim
 
         Some(Self {
@@ -180,7 +179,8 @@ impl ResidualVectorQuantization {
         let mut layers = Vec::new();
         for i in 0..num_layers {
             let layer_prefix = format!("{}layers.{}.", prefix, i);
-            if let Some(vq) = VectorQuantization::from_weights(weights, &layer_prefix, dim, device) {
+            if let Some(vq) = VectorQuantization::from_weights(weights, &layer_prefix, dim, device)
+            {
                 layers.push(vq);
             } else {
                 println!("Warning: Failed to load VQ layer {} at {}", i, layer_prefix);
@@ -196,7 +196,7 @@ impl ResidualVectorQuantization {
     pub fn decode(&self, codes: &Tensor) -> Tensor {
         let batch = codes.size()[1];
         let seq_len = codes.size()[2];
-        let out_dim = if let Some(ref layer) = self.layers.first() {
+        let out_dim = if let Some(layer) = self.layers.first() {
             if let Some(ref proj) = layer.project_out_weight {
                 proj.size()[0]
             } else {
@@ -210,7 +210,7 @@ impl ResidualVectorQuantization {
 
         for (idx, layer) in self.layers.iter().enumerate() {
             let layer_codes = codes.select(0, idx as i64);
-            quantized = quantized + layer.decode(&layer_codes);
+            quantized += layer.decode(&layer_codes);
         }
 
         quantized
@@ -237,10 +237,12 @@ impl ResidualVectorQuantizer {
         device: Device,
     ) -> Option<Self> {
         // Load input/output projections (1x1 convs)
-        let input_proj_weight = weights.get(&format!("{}input_proj.weight", prefix))
+        let input_proj_weight = weights
+            .get(&format!("{}input_proj.weight", prefix))
             .map(|w| w.squeeze_dim(-1).to_device(device));
 
-        let output_proj_weight = weights.get(&format!("{}output_proj.weight", prefix))
+        let output_proj_weight = weights
+            .get(&format!("{}output_proj.weight", prefix))
             .map(|w| w.squeeze_dim(-1).to_device(device));
 
         // Load VQ layers
@@ -334,7 +336,7 @@ impl SplitResidualVectorQuantizer {
         let n_q = codes.size()[1];
         if n_q > self.n_q_semantic {
             let acoustic_codes = codes.narrow(1, self.n_q_semantic, n_q - self.n_q_semantic);
-            quantized = quantized + self.rvq_rest.decode(&acoustic_codes);
+            quantized += self.rvq_rest.decode(&acoustic_codes);
         }
 
         quantized
@@ -383,14 +385,14 @@ impl CausalConv1d {
     /// Forward pass with causal padding.
     pub fn forward(&self, x: &Tensor) -> Tensor {
         // Apply causal padding (left-side only)
-        let padded = x.constant_pad_nd(&[self.padding, 0]);
+        let padded = x.constant_pad_nd([self.padding, 0]);
 
         padded.conv1d(
             &self.weight,
             self.bias.as_ref(),
-            &[self.stride],
-            &[0],
-            &[self.dilation],
+            [self.stride],
+            [0],
+            [self.dilation],
             self.groups,
         )
     }
@@ -432,11 +434,11 @@ impl CausalTransConv1d {
         let out = x.conv_transpose1d(
             &self.weight,
             self.bias.as_ref(),
-            &[self.stride],
-            &[0],
-            &[0],
+            [self.stride],
+            [0],
+            [0],
             1,
-            &[1],
+            [1],
         );
 
         // Trim padding
@@ -469,7 +471,9 @@ impl VocoderRMSNorm {
 
     /// Forward pass.
     pub fn forward(&self, x: &Tensor) -> Tensor {
-        let variance = x.pow_tensor_scalar(2).mean_dim(&[-1i64][..], true, Kind::Float);
+        let variance = x
+            .pow_tensor_scalar(2)
+            .mean_dim(&[-1i64][..], true, Kind::Float);
         let x_normed = x * (variance + self.eps).rsqrt();
         &self.weight * x_normed
     }
@@ -490,13 +494,18 @@ impl VocoderRotaryEmbedding {
             .collect();
         let inv_freq = Tensor::from_slice(&inv_freq).to_device(device);
 
-        Self { inv_freq, _dim: dim }
+        Self {
+            inv_freq,
+            _dim: dim,
+        }
     }
 
     /// Compute cos and sin for given sequence length.
     pub fn forward(&self, seq_len: i64, device: Device) -> (Tensor, Tensor) {
         let positions: Vec<f32> = (0..seq_len).map(|i| i as f32).collect();
-        let positions = Tensor::from_slice(&positions).to_device(device).unsqueeze(1);
+        let positions = Tensor::from_slice(&positions)
+            .to_device(device)
+            .unsqueeze(1);
 
         let freqs = positions.matmul(&self.inv_freq.unsqueeze(0));
         let emb = Tensor::cat(&[&freqs, &freqs], -1);
@@ -536,7 +545,11 @@ pub struct VocoderMLP {
 impl VocoderMLP {
     /// Create from weights.
     pub fn from_weights(gate_proj: Tensor, up_proj: Tensor, down_proj: Tensor) -> Self {
-        Self { gate_proj, up_proj, down_proj }
+        Self {
+            gate_proj,
+            up_proj,
+            down_proj,
+        }
     }
 
     /// Forward pass with SwiGLU activation.
@@ -588,7 +601,16 @@ impl VocoderAttention {
         sliding_window: i64,
     ) -> Self {
         let scaling = (head_dim as f64).powf(-0.5);
-        Self { q_proj, k_proj, v_proj, o_proj, num_heads, head_dim, scaling, sliding_window }
+        Self {
+            q_proj,
+            k_proj,
+            v_proj,
+            o_proj,
+            num_heads,
+            head_dim,
+            scaling,
+            sliding_window,
+        }
     }
 
     /// Forward pass.
@@ -601,9 +623,15 @@ impl VocoderAttention {
         let v = hidden_states.matmul(&self.v_proj.transpose(0, 1));
 
         // Reshape to [batch, num_heads, seq_len, head_dim]
-        let q = q.view([batch, seq_len, self.num_heads, self.head_dim]).transpose(1, 2);
-        let k = k.view([batch, seq_len, self.num_heads, self.head_dim]).transpose(1, 2);
-        let v = v.view([batch, seq_len, self.num_heads, self.head_dim]).transpose(1, 2);
+        let q = q
+            .view([batch, seq_len, self.num_heads, self.head_dim])
+            .transpose(1, 2);
+        let k = k
+            .view([batch, seq_len, self.num_heads, self.head_dim])
+            .transpose(1, 2);
+        let v = v
+            .view([batch, seq_len, self.num_heads, self.head_dim])
+            .transpose(1, 2);
 
         // Apply rotary embeddings
         let (q, k) = apply_rotary_pos_emb(&q, &k, cos, sin);
@@ -612,7 +640,8 @@ impl VocoderAttention {
         let attn_weights = q.matmul(&k.transpose(-2, -1)) * self.scaling;
 
         // Create causal mask with sliding window using masked_fill to avoid NaN
-        let invalid = Tensor::ones([seq_len, seq_len], (Kind::Bool, hidden_states.device())).triu(1);
+        let invalid =
+            Tensor::ones([seq_len, seq_len], (Kind::Bool, hidden_states.device())).triu(1);
 
         // Apply sliding window: also mask positions more than sliding_window steps back
         let invalid = if self.sliding_window > 0 && self.sliding_window < seq_len {
@@ -633,7 +662,10 @@ impl VocoderAttention {
         let attn_output = attn_weights.matmul(&v);
 
         // Reshape back and project output
-        let attn_output = attn_output.transpose(1, 2).contiguous().view([batch, seq_len, -1]);
+        let attn_output = attn_output
+            .transpose(1, 2)
+            .contiguous()
+            .view([batch, seq_len, -1]);
         attn_output.matmul(&self.o_proj.transpose(0, 1))
     }
 }
@@ -659,26 +691,59 @@ impl VocoderTransformerLayer {
         rms_norm_eps: f64,
         device: Device,
     ) -> Option<Self> {
-        let input_layernorm_weight = weights.get(&format!("{}.input_layernorm.weight", prefix))?.to_device(device);
-        let post_attention_layernorm_weight = weights.get(&format!("{}.post_attention_layernorm.weight", prefix))?.to_device(device);
+        let input_layernorm_weight = weights
+            .get(&format!("{}.input_layernorm.weight", prefix))?
+            .to_device(device);
+        let post_attention_layernorm_weight = weights
+            .get(&format!("{}.post_attention_layernorm.weight", prefix))?
+            .to_device(device);
 
-        let q_proj = weights.get(&format!("{}.self_attn.q_proj.weight", prefix))?.to_device(device);
-        let k_proj = weights.get(&format!("{}.self_attn.k_proj.weight", prefix))?.to_device(device);
-        let v_proj = weights.get(&format!("{}.self_attn.v_proj.weight", prefix))?.to_device(device);
-        let o_proj = weights.get(&format!("{}.self_attn.o_proj.weight", prefix))?.to_device(device);
+        let q_proj = weights
+            .get(&format!("{}.self_attn.q_proj.weight", prefix))?
+            .to_device(device);
+        let k_proj = weights
+            .get(&format!("{}.self_attn.k_proj.weight", prefix))?
+            .to_device(device);
+        let v_proj = weights
+            .get(&format!("{}.self_attn.v_proj.weight", prefix))?
+            .to_device(device);
+        let o_proj = weights
+            .get(&format!("{}.self_attn.o_proj.weight", prefix))?
+            .to_device(device);
 
-        let self_attn_layer_scale = weights.get(&format!("{}.self_attn_layer_scale.scale", prefix))?.to_device(device);
-        let mlp_layer_scale = weights.get(&format!("{}.mlp_layer_scale.scale", prefix))?.to_device(device);
+        let self_attn_layer_scale = weights
+            .get(&format!("{}.self_attn_layer_scale.scale", prefix))?
+            .to_device(device);
+        let mlp_layer_scale = weights
+            .get(&format!("{}.mlp_layer_scale.scale", prefix))?
+            .to_device(device);
 
-        let gate_proj = weights.get(&format!("{}.mlp.gate_proj.weight", prefix))?.to_device(device);
-        let up_proj = weights.get(&format!("{}.mlp.up_proj.weight", prefix))?.to_device(device);
-        let down_proj = weights.get(&format!("{}.mlp.down_proj.weight", prefix))?.to_device(device);
+        let gate_proj = weights
+            .get(&format!("{}.mlp.gate_proj.weight", prefix))?
+            .to_device(device);
+        let up_proj = weights
+            .get(&format!("{}.mlp.up_proj.weight", prefix))?
+            .to_device(device);
+        let down_proj = weights
+            .get(&format!("{}.mlp.down_proj.weight", prefix))?
+            .to_device(device);
 
         Some(Self {
             input_layernorm: VocoderRMSNorm::from_weights(input_layernorm_weight, rms_norm_eps),
-            self_attn: VocoderAttention::from_weights(q_proj, k_proj, v_proj, o_proj, num_heads, head_dim, sliding_window),
+            self_attn: VocoderAttention::from_weights(
+                q_proj,
+                k_proj,
+                v_proj,
+                o_proj,
+                num_heads,
+                head_dim,
+                sliding_window,
+            ),
             self_attn_layer_scale: VocoderLayerScale::from_weights(self_attn_layer_scale),
-            post_attention_layernorm: VocoderRMSNorm::from_weights(post_attention_layernorm_weight, rms_norm_eps),
+            post_attention_layernorm: VocoderRMSNorm::from_weights(
+                post_attention_layernorm_weight,
+                rms_norm_eps,
+            ),
             mlp: VocoderMLP::from_weights(gate_proj, up_proj, down_proj),
             mlp_layer_scale: VocoderLayerScale::from_weights(mlp_layer_scale),
         })
@@ -719,21 +784,34 @@ impl VocoderTransformer {
         config: &VocoderConfig,
         device: Device,
     ) -> Result<Self> {
-        let input_proj_weight = weights.get("decoder.pre_transformer.input_proj.weight")
-            .ok_or_else(|| Qwen3TTSError::ModelLoad("Missing pre_transformer input_proj.weight".into()))?
+        let input_proj_weight = weights
+            .get("decoder.pre_transformer.input_proj.weight")
+            .ok_or_else(|| {
+                Qwen3TTSError::ModelLoad("Missing pre_transformer input_proj.weight".into())
+            })?
             .to_device(device);
-        let input_proj_bias = weights.get("decoder.pre_transformer.input_proj.bias")
-            .ok_or_else(|| Qwen3TTSError::ModelLoad("Missing pre_transformer input_proj.bias".into()))?
+        let input_proj_bias = weights
+            .get("decoder.pre_transformer.input_proj.bias")
+            .ok_or_else(|| {
+                Qwen3TTSError::ModelLoad("Missing pre_transformer input_proj.bias".into())
+            })?
             .to_device(device);
 
-        let output_proj_weight = weights.get("decoder.pre_transformer.output_proj.weight")
-            .ok_or_else(|| Qwen3TTSError::ModelLoad("Missing pre_transformer output_proj.weight".into()))?
+        let output_proj_weight = weights
+            .get("decoder.pre_transformer.output_proj.weight")
+            .ok_or_else(|| {
+                Qwen3TTSError::ModelLoad("Missing pre_transformer output_proj.weight".into())
+            })?
             .to_device(device);
-        let output_proj_bias = weights.get("decoder.pre_transformer.output_proj.bias")
-            .ok_or_else(|| Qwen3TTSError::ModelLoad("Missing pre_transformer output_proj.bias".into()))?
+        let output_proj_bias = weights
+            .get("decoder.pre_transformer.output_proj.bias")
+            .ok_or_else(|| {
+                Qwen3TTSError::ModelLoad("Missing pre_transformer output_proj.bias".into())
+            })?
             .to_device(device);
 
-        let norm_weight = weights.get("decoder.pre_transformer.norm.weight")
+        let norm_weight = weights
+            .get("decoder.pre_transformer.norm.weight")
             .ok_or_else(|| Qwen3TTSError::ModelLoad("Missing pre_transformer norm.weight".into()))?
             .to_device(device);
 
@@ -748,7 +826,10 @@ impl VocoderTransformer {
                 config.sliding_window,
                 config.rms_norm_eps,
                 device,
-            ).ok_or_else(|| Qwen3TTSError::ModelLoad(format!("Failed to load transformer layer {}", i)))?;
+            )
+            .ok_or_else(|| {
+                Qwen3TTSError::ModelLoad(format!("Failed to load transformer layer {}", i))
+            })?;
             layers.push(layer);
         }
 
@@ -776,7 +857,8 @@ impl VocoderTransformer {
         let hidden = hidden.transpose(1, 2);
 
         // Project to transformer hidden size
-        let mut hidden = hidden.matmul(&self.input_proj_weight.transpose(0, 1)) + &self.input_proj_bias;
+        let mut hidden =
+            hidden.matmul(&self.input_proj_weight.transpose(0, 1)) + &self.input_proj_bias;
 
         // Get sequence length and compute rotary embeddings
         let seq_len = hidden.size()[1];
@@ -791,7 +873,8 @@ impl VocoderTransformer {
         hidden = self.norm.forward(&hidden);
 
         // Project back to latent dimension
-        let hidden = hidden.matmul(&self.output_proj_weight.transpose(0, 1)) + &self.output_proj_bias;
+        let hidden =
+            hidden.matmul(&self.output_proj_weight.transpose(0, 1)) + &self.output_proj_bias;
 
         // Transpose back: [batch, seq_len, latent_dim] -> [batch, latent_dim, seq_len]
         hidden.transpose(1, 2)
@@ -855,18 +938,34 @@ impl ConvNeXtBlock {
         dim: i64,
         device: Device,
     ) -> Option<Self> {
-        let dwconv_weight = weights.get(&format!("{}dwconv.conv.weight", prefix))?.to_device(device);
-        let dwconv_bias = weights.get(&format!("{}dwconv.conv.bias", prefix)).map(|w| w.to_device(device));
+        let dwconv_weight = weights
+            .get(&format!("{}dwconv.conv.weight", prefix))?
+            .to_device(device);
+        let dwconv_bias = weights
+            .get(&format!("{}dwconv.conv.bias", prefix))
+            .map(|w| w.to_device(device));
         let dwconv = CausalConv1d::from_weights(dwconv_weight, dwconv_bias, 1, 1, dim);
 
-        let norm_weight = weights.get(&format!("{}norm.weight", prefix))?.to_device(device);
-        let norm_bias = weights.get(&format!("{}norm.bias", prefix))?.to_device(device);
+        let norm_weight = weights
+            .get(&format!("{}norm.weight", prefix))?
+            .to_device(device);
+        let norm_bias = weights
+            .get(&format!("{}norm.bias", prefix))?
+            .to_device(device);
 
-        let pwconv1_weight = weights.get(&format!("{}pwconv1.weight", prefix))?.to_device(device);
-        let pwconv1_bias = weights.get(&format!("{}pwconv1.bias", prefix))?.to_device(device);
+        let pwconv1_weight = weights
+            .get(&format!("{}pwconv1.weight", prefix))?
+            .to_device(device);
+        let pwconv1_bias = weights
+            .get(&format!("{}pwconv1.bias", prefix))?
+            .to_device(device);
 
-        let pwconv2_weight = weights.get(&format!("{}pwconv2.weight", prefix))?.to_device(device);
-        let pwconv2_bias = weights.get(&format!("{}pwconv2.bias", prefix))?.to_device(device);
+        let pwconv2_weight = weights
+            .get(&format!("{}pwconv2.weight", prefix))?
+            .to_device(device);
+        let pwconv2_bias = weights
+            .get(&format!("{}pwconv2.bias", prefix))?
+            .to_device(device);
 
         let gamma = weights.get(&format!("{}gamma", prefix))?.to_device(device);
 
@@ -888,7 +987,13 @@ impl ConvNeXtBlock {
         let residual = x;
         let hidden = self.dwconv.forward(x);
         let hidden = hidden.transpose(1, 2);
-        let hidden = hidden.layer_norm(&[self.dim], Some(&self.norm_weight), Some(&self.norm_bias), 1e-6, true);
+        let hidden = hidden.layer_norm(
+            [self.dim],
+            Some(&self.norm_weight),
+            Some(&self.norm_bias),
+            1e-6,
+            true,
+        );
         let hidden = hidden.matmul(&self.pwconv1_weight.transpose(0, 1)) + &self.pwconv1_bias;
         let hidden = hidden.gelu("tanh");
         let hidden = hidden.matmul(&self.pwconv2_weight.transpose(0, 1)) + &self.pwconv2_bias;
@@ -914,23 +1019,44 @@ impl DecoderResidualUnit {
         dilation: i64,
         device: Device,
     ) -> Option<Self> {
-        let act1_alpha = weights.get(&format!("{}act1.alpha", prefix))?.to_device(device);
-        let act1_beta = weights.get(&format!("{}act1.beta", prefix))?.to_device(device);
+        let act1_alpha = weights
+            .get(&format!("{}act1.alpha", prefix))?
+            .to_device(device);
+        let act1_beta = weights
+            .get(&format!("{}act1.beta", prefix))?
+            .to_device(device);
         let act1 = SnakeBeta::from_weights(act1_alpha, act1_beta);
 
-        let conv1_weight = weights.get(&format!("{}conv1.conv.weight", prefix))?.to_device(device);
-        let conv1_bias = weights.get(&format!("{}conv1.conv.bias", prefix)).map(|w| w.to_device(device));
+        let conv1_weight = weights
+            .get(&format!("{}conv1.conv.weight", prefix))?
+            .to_device(device);
+        let conv1_bias = weights
+            .get(&format!("{}conv1.conv.bias", prefix))
+            .map(|w| w.to_device(device));
         let conv1 = CausalConv1d::from_weights(conv1_weight, conv1_bias, 1, dilation, 1);
 
-        let act2_alpha = weights.get(&format!("{}act2.alpha", prefix))?.to_device(device);
-        let act2_beta = weights.get(&format!("{}act2.beta", prefix))?.to_device(device);
+        let act2_alpha = weights
+            .get(&format!("{}act2.alpha", prefix))?
+            .to_device(device);
+        let act2_beta = weights
+            .get(&format!("{}act2.beta", prefix))?
+            .to_device(device);
         let act2 = SnakeBeta::from_weights(act2_alpha, act2_beta);
 
-        let conv2_weight = weights.get(&format!("{}conv2.conv.weight", prefix))?.to_device(device);
-        let conv2_bias = weights.get(&format!("{}conv2.conv.bias", prefix)).map(|w| w.to_device(device));
+        let conv2_weight = weights
+            .get(&format!("{}conv2.conv.weight", prefix))?
+            .to_device(device);
+        let conv2_bias = weights
+            .get(&format!("{}conv2.conv.bias", prefix))
+            .map(|w| w.to_device(device));
         let conv2 = CausalConv1d::from_weights(conv2_weight, conv2_bias, 1, 1, 1);
 
-        Some(Self { act1, conv1, act2, conv2 })
+        Some(Self {
+            act1,
+            conv1,
+            act2,
+            conv2,
+        })
     }
 
     /// Forward pass.
@@ -959,26 +1085,40 @@ impl DecoderBlock {
         upsample_rate: i64,
         device: Device,
     ) -> Option<Self> {
-        let snake_alpha = weights.get(&format!("{}block.0.alpha", prefix))?.to_device(device);
-        let snake_beta = weights.get(&format!("{}block.0.beta", prefix))?.to_device(device);
+        let snake_alpha = weights
+            .get(&format!("{}block.0.alpha", prefix))?
+            .to_device(device);
+        let snake_beta = weights
+            .get(&format!("{}block.0.beta", prefix))?
+            .to_device(device);
         let snake = SnakeBeta::from_weights(snake_alpha, snake_beta);
 
-        let trans_weight = weights.get(&format!("{}block.1.conv.weight", prefix))?.to_device(device);
-        let trans_bias = weights.get(&format!("{}block.1.conv.bias", prefix)).map(|w| w.to_device(device));
+        let trans_weight = weights
+            .get(&format!("{}block.1.conv.weight", prefix))?
+            .to_device(device);
+        let trans_bias = weights
+            .get(&format!("{}block.1.conv.bias", prefix))
+            .map(|w| w.to_device(device));
         let trans_conv = CausalTransConv1d::from_weights(trans_weight, trans_bias, upsample_rate);
 
         let dilations = [1, 3, 9];
         let mut residual_units = Vec::new();
         for (i, &dilation) in dilations.iter().enumerate() {
             let unit_prefix = format!("{}block.{}.", prefix, i + 2);
-            if let Some(unit) = DecoderResidualUnit::from_weights(weights, &unit_prefix, dilation, device) {
+            if let Some(unit) =
+                DecoderResidualUnit::from_weights(weights, &unit_prefix, dilation, device)
+            {
                 residual_units.push(unit);
             } else {
                 return None;
             }
         }
 
-        Some(Self { snake, trans_conv, residual_units })
+        Some(Self {
+            snake,
+            trans_conv,
+            residual_units,
+        })
     }
 
     /// Forward pass.
@@ -1032,28 +1172,37 @@ impl Vocoder {
             config.num_semantic_quantizers,
             config.codebook_dim / 2, // dimension is half codebook_dim
             device,
-        ).ok_or_else(|| Qwen3TTSError::ModelLoad("Failed to load quantizer".into()))?;
+        )
+        .ok_or_else(|| Qwen3TTSError::ModelLoad("Failed to load quantizer".into()))?;
         println!("  Loaded quantizer");
 
         // Load pre_conv
-        let pre_conv_weight = weights.get("decoder.pre_conv.conv.weight")
+        let pre_conv_weight = weights
+            .get("decoder.pre_conv.conv.weight")
             .ok_or_else(|| Qwen3TTSError::ModelLoad("Missing decoder.pre_conv.conv.weight".into()))?
             .to_device(device);
-        let pre_conv_bias = weights.get("decoder.pre_conv.conv.bias").map(|w| w.to_device(device));
+        let pre_conv_bias = weights
+            .get("decoder.pre_conv.conv.bias")
+            .map(|w| w.to_device(device));
         let pre_conv = CausalConv1d::from_weights(pre_conv_weight, pre_conv_bias, 1, 1, 1);
         println!("  Loaded pre_conv");
 
         // Load full pre-transformer (8 layers)
         let pre_transformer = VocoderTransformer::load(weights, &config, device)?;
-        println!("  Loaded pre_transformer ({} layers)", config.num_hidden_layers);
+        println!(
+            "  Loaded pre_transformer ({} layers)",
+            config.num_hidden_layers
+        );
 
         // Load upsample blocks
         let mut upsample_blocks = Vec::new();
         for (i, &factor) in config.upsampling_ratios.iter().enumerate() {
-            let trans_weight = weights.get(&format!("decoder.upsample.{}.0.conv.weight", i))
+            let trans_weight = weights
+                .get(&format!("decoder.upsample.{}.0.conv.weight", i))
                 .ok_or_else(|| Qwen3TTSError::ModelLoad(format!("Missing upsample.{}.0", i)))?
                 .to_device(device);
-            let trans_bias = weights.get(&format!("decoder.upsample.{}.0.conv.bias", i))
+            let trans_bias = weights
+                .get(&format!("decoder.upsample.{}.0.conv.bias", i))
                 .map(|w| w.to_device(device));
             let trans_conv = CausalTransConv1d::from_weights(trans_weight, trans_bias, factor);
 
@@ -1062,19 +1211,23 @@ impl Vocoder {
                 &format!("decoder.upsample.{}.1.", i),
                 config.latent_dim,
                 device,
-            ).ok_or_else(|| Qwen3TTSError::ModelLoad(format!("Failed to load upsample.{}.1", i)))?;
+            )
+            .ok_or_else(|| Qwen3TTSError::ModelLoad(format!("Failed to load upsample.{}.1", i)))?;
 
             upsample_blocks.push((trans_conv, convnext));
         }
         println!("  Loaded {} upsample blocks", upsample_blocks.len());
 
         // Load first decoder conv
-        let first_conv_weight = weights.get("decoder.decoder.0.conv.weight")
+        let first_conv_weight = weights
+            .get("decoder.decoder.0.conv.weight")
             .ok_or_else(|| Qwen3TTSError::ModelLoad("Missing decoder.decoder.0".into()))?
             .to_device(device);
-        let first_conv_bias = weights.get("decoder.decoder.0.conv.bias")
+        let first_conv_bias = weights
+            .get("decoder.decoder.0.conv.bias")
             .map(|w| w.to_device(device));
-        let decoder_first_conv = CausalConv1d::from_weights(first_conv_weight, first_conv_bias, 1, 1, 1);
+        let decoder_first_conv =
+            CausalConv1d::from_weights(first_conv_weight, first_conv_bias, 1, 1, 1);
         println!("  Loaded decoder first conv");
 
         // Load decoder blocks
@@ -1085,25 +1238,30 @@ impl Vocoder {
                 &format!("decoder.decoder.{}.", i + 1),
                 upsample_rate,
                 device,
-            ).ok_or_else(|| Qwen3TTSError::ModelLoad(format!("Failed to load decoder.{}", i + 1)))?;
+            )
+            .ok_or_else(|| Qwen3TTSError::ModelLoad(format!("Failed to load decoder.{}", i + 1)))?;
             decoder_blocks.push(block);
         }
         println!("  Loaded {} decoder blocks", decoder_blocks.len());
 
         // Load final activation and conv
         let final_idx = config.upsample_rates.len() + 1;
-        let final_snake_alpha = weights.get(&format!("decoder.decoder.{}.alpha", final_idx))
+        let final_snake_alpha = weights
+            .get(&format!("decoder.decoder.{}.alpha", final_idx))
             .ok_or_else(|| Qwen3TTSError::ModelLoad("Missing final snake alpha".into()))?
             .to_device(device);
-        let final_snake_beta = weights.get(&format!("decoder.decoder.{}.beta", final_idx))
+        let final_snake_beta = weights
+            .get(&format!("decoder.decoder.{}.beta", final_idx))
             .ok_or_else(|| Qwen3TTSError::ModelLoad("Missing final snake beta".into()))?
             .to_device(device);
         let final_snake = SnakeBeta::from_weights(final_snake_alpha, final_snake_beta);
 
-        let final_conv_weight = weights.get(&format!("decoder.decoder.{}.conv.weight", final_idx + 1))
+        let final_conv_weight = weights
+            .get(&format!("decoder.decoder.{}.conv.weight", final_idx + 1))
             .ok_or_else(|| Qwen3TTSError::ModelLoad("Missing final conv weight".into()))?
             .to_device(device);
-        let final_conv_bias = weights.get(&format!("decoder.decoder.{}.conv.bias", final_idx + 1))
+        let final_conv_bias = weights
+            .get(&format!("decoder.decoder.{}.conv.bias", final_idx + 1))
             .map(|w| w.to_device(device));
         let final_conv = CausalConv1d::from_weights(final_conv_weight, final_conv_bias, 1, 1, 1);
         println!("  Loaded final layers");

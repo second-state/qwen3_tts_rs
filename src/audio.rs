@@ -33,6 +33,7 @@ pub enum AudioInput {
 
 impl AudioInput {
     /// Create from a string, automatically detecting the type.
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Self {
         if is_url(s) {
             AudioInput::Url(s.to_string())
@@ -45,7 +46,10 @@ impl AudioInput {
 
     /// Create from raw waveform samples.
     pub fn from_waveform(samples: Vec<f32>, sample_rate: u32) -> Self {
-        AudioInput::Waveform { samples, sample_rate }
+        AudioInput::Waveform {
+            samples,
+            sample_rate,
+        }
     }
 }
 
@@ -63,7 +67,10 @@ impl From<String> for AudioInput {
 
 impl From<(Vec<f32>, u32)> for AudioInput {
     fn from((samples, sample_rate): (Vec<f32>, u32)) -> Self {
-        AudioInput::Waveform { samples, sample_rate }
+        AudioInput::Waveform {
+            samples,
+            sample_rate,
+        }
     }
 }
 
@@ -98,9 +105,7 @@ fn decode_base64_to_bytes(b64: &str) -> Result<Vec<u8>> {
         b64
     };
 
-    BASE64_STANDARD
-        .decode(data)
-        .map_err(|e| Qwen3TTSError::Base64(e))
+    BASE64_STANDARD.decode(data).map_err(Qwen3TTSError::Base64)
 }
 
 /// Load audio from a WAV file path.
@@ -112,14 +117,14 @@ pub fn load_wav_file(path: &str) -> Result<(Vec<f32>, u32)> {
     let sample_rate = spec.sample_rate;
 
     let samples: Vec<f32> = match spec.sample_format {
-        hound::SampleFormat::Float => {
-            reader.into_samples::<f32>()
-                .filter_map(|s| s.ok())
-                .collect()
-        }
+        hound::SampleFormat::Float => reader
+            .into_samples::<f32>()
+            .filter_map(|s| s.ok())
+            .collect(),
         hound::SampleFormat::Int => {
             let max_val = (1 << (spec.bits_per_sample - 1)) as f32;
-            reader.into_samples::<i32>()
+            reader
+                .into_samples::<i32>()
                 .filter_map(|s| s.ok())
                 .map(|s| s as f32 / max_val)
                 .collect()
@@ -149,14 +154,14 @@ pub fn load_wav_bytes(bytes: &[u8]) -> Result<(Vec<f32>, u32)> {
     let sample_rate = spec.sample_rate;
 
     let samples: Vec<f32> = match spec.sample_format {
-        hound::SampleFormat::Float => {
-            reader.into_samples::<f32>()
-                .filter_map(|s| s.ok())
-                .collect()
-        }
+        hound::SampleFormat::Float => reader
+            .into_samples::<f32>()
+            .filter_map(|s| s.ok())
+            .collect(),
         hound::SampleFormat::Int => {
             let max_val = (1 << (spec.bits_per_sample - 1)) as f32;
-            reader.into_samples::<i32>()
+            reader
+                .into_samples::<i32>()
                 .filter_map(|s| s.ok())
                 .map(|s| s as f32 / max_val)
                 .collect()
@@ -181,7 +186,7 @@ pub fn load_wav_bytes(bytes: &[u8]) -> Result<(Vec<f32>, u32)> {
 /// Currently returns an error as URL fetching is not yet implemented.
 pub fn fetch_audio_from_url(_url: &str) -> Result<Vec<u8>> {
     Err(Qwen3TTSError::Unsupported(
-        "URL fetching is not yet implemented".to_string()
+        "URL fetching is not yet implemented".to_string(),
     ))
 }
 
@@ -197,7 +202,10 @@ pub fn load_audio(input: AudioInput, target_sr: u32) -> Result<Vec<f32>> {
             let bytes = fetch_audio_from_url(&url)?;
             load_wav_bytes(&bytes)?
         }
-        AudioInput::Waveform { samples, sample_rate } => (samples, sample_rate),
+        AudioInput::Waveform {
+            samples,
+            sample_rate,
+        } => (samples, sample_rate),
     };
 
     // Resample if necessary
@@ -213,7 +221,10 @@ pub fn load_audio_batch<I>(inputs: I, target_sr: u32) -> Result<Vec<Vec<f32>>>
 where
     I: IntoIterator<Item = AudioInput>,
 {
-    inputs.into_iter().map(|input| load_audio(input, target_sr)).collect()
+    inputs
+        .into_iter()
+        .map(|input| load_audio(input, target_sr))
+        .collect()
 }
 
 /// Resample audio from one sample rate to another.
@@ -286,11 +297,13 @@ pub fn write_wav_file(path: &str, samples: &[f32], sample_rate: u32) -> Result<(
         // Clamp to [-1, 1] and scale to i16 range
         let clamped = sample.clamp(-1.0, 1.0);
         let scaled = (clamped * 32767.0) as i16;
-        writer.write_sample(scaled)
+        writer
+            .write_sample(scaled)
             .map_err(|e| Qwen3TTSError::Audio(format!("Failed to write sample: {}", e)))?;
     }
 
-    writer.finalize()
+    writer
+        .finalize()
         .map_err(|e| Qwen3TTSError::Audio(format!("Failed to finalize WAV: {}", e)))?;
 
     Ok(())
@@ -311,11 +324,13 @@ pub fn write_wav_bytes(samples: &[f32], sample_rate: u32) -> Result<Vec<u8>> {
             .map_err(|e| Qwen3TTSError::Audio(format!("Failed to create WAV writer: {}", e)))?;
 
         for &sample in samples {
-            writer.write_sample(sample)
+            writer
+                .write_sample(sample)
                 .map_err(|e| Qwen3TTSError::Audio(format!("Failed to write sample: {}", e)))?;
         }
 
-        writer.finalize()
+        writer
+            .finalize()
             .map_err(|e| Qwen3TTSError::Audio(format!("Failed to finalize WAV: {}", e)))?;
     }
 

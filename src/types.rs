@@ -119,9 +119,10 @@ impl GenerationOutput {
 }
 
 /// Language specification for TTS generation.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Language {
     /// Automatic language detection
+    #[default]
     Auto,
     /// English
     English,
@@ -133,12 +134,6 @@ pub enum Language {
     Korean,
     /// Custom language code
     Custom(String),
-}
-
-impl Default for Language {
-    fn default() -> Self {
-        Self::Auto
-    }
 }
 
 impl Language {

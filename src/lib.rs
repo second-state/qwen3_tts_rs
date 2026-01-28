@@ -75,11 +75,13 @@
 #![warn(rustdoc::missing_doc_code_examples)]
 
 pub mod audio;
+pub mod audio_encoder;
 pub mod config;
 pub mod error;
 pub mod inference;
 pub mod layers;
 pub mod model;
+pub mod speaker_encoder;
 pub mod tokenizer;
 pub mod types;
 pub mod vocoder;
