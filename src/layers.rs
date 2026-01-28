@@ -25,7 +25,10 @@ impl RMSNorm {
     /// Load RMSNorm from pre-loaded weights.
     pub fn from_weights(weight: Tensor, eps: f64) -> Self {
         // Convert to float32 for stable computation
-        Self { weight: weight.to_kind(Kind::Float), eps }
+        Self {
+            weight: weight.to_kind(Kind::Float),
+            eps,
+        }
     }
 
     /// Apply RMS normalization.
@@ -68,7 +71,9 @@ impl Linear {
     /// Load Linear from pre-loaded weight tensor.
     pub fn from_weights(weight: Tensor) -> Self {
         // Convert to float32 for stable computation
-        Self { weight: weight.to_kind(Kind::Float) }
+        Self {
+            weight: weight.to_kind(Kind::Float),
+        }
     }
 
     /// Apply linear transformation: x @ W^T.
@@ -317,11 +322,29 @@ impl Attention {
             let repeat_factor = self.num_heads / self.num_kv_heads;
             let key = key
                 .unsqueeze(2)
-                .expand([batch_size, self.num_kv_heads, repeat_factor, seq_len, self.head_dim], false)
+                .expand(
+                    [
+                        batch_size,
+                        self.num_kv_heads,
+                        repeat_factor,
+                        seq_len,
+                        self.head_dim,
+                    ],
+                    false,
+                )
                 .reshape([batch_size, self.num_heads, seq_len, self.head_dim]);
             let value = value
                 .unsqueeze(2)
-                .expand([batch_size, self.num_kv_heads, repeat_factor, seq_len, self.head_dim], false)
+                .expand(
+                    [
+                        batch_size,
+                        self.num_kv_heads,
+                        repeat_factor,
+                        seq_len,
+                        self.head_dim,
+                    ],
+                    false,
+                )
                 .reshape([batch_size, self.num_heads, seq_len, self.head_dim]);
             (key, value)
         } else {
@@ -349,10 +372,11 @@ impl Attention {
         let attn_output = attn_weights.matmul(&value);
 
         // Reshape back: (batch, heads, seq, head_dim) -> (batch, seq, hidden)
-        let attn_output = attn_output
-            .transpose(1, 2)
-            .contiguous()
-            .view([batch_size, seq_len, self.num_heads * self.head_dim]);
+        let attn_output = attn_output.transpose(1, 2).contiguous().view([
+            batch_size,
+            seq_len,
+            self.num_heads * self.head_dim,
+        ]);
 
         // Output projection
         self.o_proj.forward(&attn_output)
@@ -367,7 +391,12 @@ impl Attention {
     ) -> Tensor {
         let check_nan = |name: &str, t: &Tensor| {
             let mean: f64 = t.mean(Kind::Float).try_into().unwrap_or(f64::NAN);
-            println!("      attn {}: mean={:.6} nan={}", name, mean, mean.is_nan());
+            println!(
+                "      attn {}: mean={:.6} nan={}",
+                name,
+                mean,
+                mean.is_nan()
+            );
         };
 
         let size = hidden_states.size();
@@ -437,11 +466,29 @@ impl Attention {
             let repeat_factor = self.num_heads / self.num_kv_heads;
             let key = key
                 .unsqueeze(2)
-                .expand([batch_size, self.num_kv_heads, repeat_factor, seq_len, self.head_dim], false)
+                .expand(
+                    [
+                        batch_size,
+                        self.num_kv_heads,
+                        repeat_factor,
+                        seq_len,
+                        self.head_dim,
+                    ],
+                    false,
+                )
                 .reshape([batch_size, self.num_heads, seq_len, self.head_dim]);
             let value = value
                 .unsqueeze(2)
-                .expand([batch_size, self.num_kv_heads, repeat_factor, seq_len, self.head_dim], false)
+                .expand(
+                    [
+                        batch_size,
+                        self.num_kv_heads,
+                        repeat_factor,
+                        seq_len,
+                        self.head_dim,
+                    ],
+                    false,
+                )
                 .reshape([batch_size, self.num_heads, seq_len, self.head_dim]);
             (key, value)
         } else {
@@ -470,10 +517,11 @@ impl Attention {
         check_nan("attn_output", &attn_output);
 
         // Reshape back
-        let attn_output = attn_output
-            .transpose(1, 2)
-            .contiguous()
-            .view([batch_size, seq_len, self.num_heads * self.head_dim]);
+        let attn_output = attn_output.transpose(1, 2).contiguous().view([
+            batch_size,
+            seq_len,
+            self.num_heads * self.head_dim,
+        ]);
 
         // Output projection
         let result = self.o_proj.forward(&attn_output);
@@ -555,7 +603,13 @@ impl TransformerLayer {
         rms_norm_eps: f64,
     ) -> Self {
         Self {
-            self_attn: Attention::new(&vs.sub("self_attn"), hidden_size, num_heads, num_kv_heads, head_dim),
+            self_attn: Attention::new(
+                &vs.sub("self_attn"),
+                hidden_size,
+                num_heads,
+                num_kv_heads,
+                head_dim,
+            ),
             mlp: MLP::new(&vs.sub("mlp"), hidden_size, intermediate_size),
             input_layernorm: RMSNorm::new(&vs.sub("input_layernorm"), hidden_size, rms_norm_eps),
             post_attention_layernorm: RMSNorm::new(
@@ -567,6 +621,7 @@ impl TransformerLayer {
     }
 
     /// Load TransformerLayer from pre-loaded weights.
+    #[allow(clippy::too_many_arguments)]
     pub fn from_weights(
         weights: &HashMap<String, Tensor>,
         prefix: &str,
@@ -654,7 +709,9 @@ impl TransformerLayer {
         check_nan("after_layernorm", &hidden);
 
         // Use attention debug
-        let hidden = self.self_attn.forward_debug(&hidden, rotary_emb, attention_mask);
+        let hidden = self
+            .self_attn
+            .forward_debug(&hidden, rotary_emb, attention_mask);
         check_nan("after_attn", &hidden);
 
         let hidden = residual + hidden;

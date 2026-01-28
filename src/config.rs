@@ -52,15 +52,33 @@ pub struct SpeakerEncoderConfig {
     pub sample_rate: u32,
 }
 
-fn default_mel_dim() -> usize { 128 }
-fn default_enc_dim() -> usize { 1024 }
-fn default_enc_channels() -> Vec<usize> { vec![512, 512, 512, 512, 1536] }
-fn default_enc_kernel_sizes() -> Vec<usize> { vec![5, 3, 3, 3, 1] }
-fn default_enc_dilations() -> Vec<usize> { vec![1, 2, 3, 4, 1] }
-fn default_enc_attention_channels() -> usize { 128 }
-fn default_enc_res2net_scale() -> usize { 8 }
-fn default_enc_se_channels() -> usize { 128 }
-fn default_sample_rate() -> u32 { 24000 }
+fn default_mel_dim() -> usize {
+    128
+}
+fn default_enc_dim() -> usize {
+    1024
+}
+fn default_enc_channels() -> Vec<usize> {
+    vec![512, 512, 512, 512, 1536]
+}
+fn default_enc_kernel_sizes() -> Vec<usize> {
+    vec![5, 3, 3, 3, 1]
+}
+fn default_enc_dilations() -> Vec<usize> {
+    vec![1, 2, 3, 4, 1]
+}
+fn default_enc_attention_channels() -> usize {
+    128
+}
+fn default_enc_res2net_scale() -> usize {
+    8
+}
+fn default_enc_se_channels() -> usize {
+    128
+}
+fn default_sample_rate() -> u32 {
+    24000
+}
 
 impl Default for SpeakerEncoderConfig {
     fn default() -> Self {
@@ -214,22 +232,54 @@ pub struct TalkerCodePredictorConfig {
     pub num_code_groups: usize,
 }
 
-fn default_code_vocab_size() -> usize { 2048 }
-fn default_code_hidden_size() -> usize { 1024 }
-fn default_code_intermediate_size() -> usize { 3072 }
-fn default_code_num_layers() -> usize { 5 }
-fn default_code_num_heads() -> usize { 16 }
-fn default_code_num_kv_heads() -> usize { 8 }
-fn default_head_dim() -> usize { 128 }
-fn default_hidden_act() -> String { "silu".to_string() }
-fn default_max_position_embeddings() -> usize { 32768 }
-fn default_initializer_range() -> f64 { 0.02 }
-fn default_rms_norm_eps() -> f64 { 1e-6 }
-fn default_true() -> bool { true }
-fn default_rope_theta() -> f64 { 10000.0 }
-fn default_sliding_window() -> Option<usize> { Some(4096) }
-fn default_max_window_layers() -> usize { 28 }
-fn default_num_code_groups() -> usize { 32 }
+fn default_code_vocab_size() -> usize {
+    2048
+}
+fn default_code_hidden_size() -> usize {
+    1024
+}
+fn default_code_intermediate_size() -> usize {
+    3072
+}
+fn default_code_num_layers() -> usize {
+    5
+}
+fn default_code_num_heads() -> usize {
+    16
+}
+fn default_code_num_kv_heads() -> usize {
+    8
+}
+fn default_head_dim() -> usize {
+    128
+}
+fn default_hidden_act() -> String {
+    "silu".to_string()
+}
+fn default_max_position_embeddings() -> usize {
+    32768
+}
+fn default_initializer_range() -> f64 {
+    0.02
+}
+fn default_rms_norm_eps() -> f64 {
+    1e-6
+}
+fn default_true() -> bool {
+    true
+}
+fn default_rope_theta() -> f64 {
+    10000.0
+}
+fn default_sliding_window() -> Option<usize> {
+    Some(4096)
+}
+fn default_max_window_layers() -> usize {
+    28
+}
+fn default_num_code_groups() -> usize {
+    32
+}
 
 impl Default for TalkerCodePredictorConfig {
     fn default() -> Self {
@@ -407,20 +457,48 @@ pub struct TalkerConfig {
     pub codec_language_id: Option<HashMap<String, u32>>,
 }
 
-fn default_talker_vocab_size() -> usize { 3072 }
-fn default_talker_hidden_size() -> usize { 1024 }
-fn default_talker_intermediate_size() -> usize { 2048 }
-fn default_talker_num_layers() -> usize { 20 }
-fn default_talker_num_heads() -> usize { 16 }
-fn default_talker_num_kv_heads() -> usize { 2 }
-fn default_text_hidden_size() -> usize { 2048 }
-fn default_codec_eos_token_id() -> u32 { 4198 }
-fn default_codec_think_id() -> u32 { 4202 }
-fn default_codec_nothink_id() -> u32 { 4203 }
-fn default_codec_think_bos_id() -> u32 { 4204 }
-fn default_codec_think_eos_id() -> u32 { 4205 }
-fn default_codec_pad_id() -> u32 { 4196 }
-fn default_codec_bos_id() -> u32 { 4197 }
+fn default_talker_vocab_size() -> usize {
+    3072
+}
+fn default_talker_hidden_size() -> usize {
+    1024
+}
+fn default_talker_intermediate_size() -> usize {
+    2048
+}
+fn default_talker_num_layers() -> usize {
+    20
+}
+fn default_talker_num_heads() -> usize {
+    16
+}
+fn default_talker_num_kv_heads() -> usize {
+    2
+}
+fn default_text_hidden_size() -> usize {
+    2048
+}
+fn default_codec_eos_token_id() -> u32 {
+    4198
+}
+fn default_codec_think_id() -> u32 {
+    4202
+}
+fn default_codec_nothink_id() -> u32 {
+    4203
+}
+fn default_codec_think_bos_id() -> u32 {
+    4204
+}
+fn default_codec_think_eos_id() -> u32 {
+    4205
+}
+fn default_codec_pad_id() -> u32 {
+    4196
+}
+fn default_codec_bos_id() -> u32 {
+    4197
+}
 
 impl Default for TalkerConfig {
     fn default() -> Self {
@@ -460,10 +538,11 @@ impl Default for TalkerConfig {
 }
 
 /// TTS model type variants.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TTSModelType {
     /// Base model for voice cloning
+    #[default]
     Base,
     /// Custom voice model with predefined speakers
     CustomVoice,
@@ -471,14 +550,8 @@ pub enum TTSModelType {
     VoiceDesign,
 }
 
-impl Default for TTSModelType {
-    fn default() -> Self {
-        Self::Base
-    }
-}
-
 /// Tokenizer type variants (25Hz or 12Hz).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TokenizerType {
     /// 25Hz tokenizer (V1)
@@ -486,13 +559,8 @@ pub enum TokenizerType {
     V1_25Hz,
     /// 12Hz tokenizer (V2)
     #[serde(alias = "qwen3_tts_tokenizer_12hz", alias = "12hz")]
+    #[default]
     V2_12Hz,
-}
-
-impl Default for TokenizerType {
-    fn default() -> Self {
-        Self::V2_12Hz
-    }
 }
 
 /// Main configuration for Qwen3 TTS model.
@@ -544,13 +612,27 @@ pub struct Qwen3TTSConfig {
     pub assistant_token_id: u32,
 }
 
-fn default_model_type() -> String { "qwen3_tts".to_string() }
-fn default_im_start_token_id() -> u32 { 151644 }
-fn default_im_end_token_id() -> u32 { 151645 }
-fn default_tts_pad_token_id() -> u32 { 151671 }
-fn default_tts_bos_token_id() -> u32 { 151672 }
-fn default_tts_eos_token_id() -> u32 { 151673 }
-fn default_assistant_token_id() -> u32 { 77091 }
+fn default_model_type() -> String {
+    "qwen3_tts".to_string()
+}
+fn default_im_start_token_id() -> u32 {
+    151644
+}
+fn default_im_end_token_id() -> u32 {
+    151645
+}
+fn default_tts_pad_token_id() -> u32 {
+    151671
+}
+fn default_tts_bos_token_id() -> u32 {
+    151672
+}
+fn default_tts_eos_token_id() -> u32 {
+    151673
+}
+fn default_assistant_token_id() -> u32 {
+    77091
+}
 
 impl Default for Qwen3TTSConfig {
     fn default() -> Self {
@@ -643,11 +725,21 @@ pub struct GenerationConfig {
     pub max_new_tokens: usize,
 }
 
-fn default_top_k() -> usize { 50 }
-fn default_top_p() -> f64 { 1.0 }
-fn default_temperature() -> f64 { 0.9 }
-fn default_repetition_penalty() -> f64 { 1.05 }
-fn default_max_new_tokens() -> usize { 2048 }
+fn default_top_k() -> usize {
+    50
+}
+fn default_top_p() -> f64 {
+    1.0
+}
+fn default_temperature() -> f64 {
+    0.9
+}
+fn default_repetition_penalty() -> f64 {
+    1.05
+}
+fn default_max_new_tokens() -> usize {
+    2048
+}
 
 impl Default for GenerationConfig {
     fn default() -> Self {
