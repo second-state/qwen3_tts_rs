@@ -147,6 +147,7 @@ jobs:
             ryan_reference.wav \
             "This is a voice cloning test using Ryan as the reference speaker." \
             english
+          mv output_voice_clone.wav output_ryan_clone.wav
 
       - name: Voice clone (ICL mode) from Ryan reference
         env:
@@ -158,7 +159,7 @@ jobs:
             "This is a voice cloning test with in-context learning." \
             english \
             "The quick brown fox jumps over the lazy dog."
-          mv output_voice_clone.wav output_voice_clone_icl.wav
+          mv output_voice_clone.wav output_ryan_clone_icl.wav
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -170,5 +171,5 @@ jobs:
             output_english.wav
             output_chinese.wav
             ryan_reference.wav
-            output_voice_clone.wav
-            output_voice_clone_icl.wav
+            output_ryan_clone.wav
+            output_ryan_clone_icl.wav
