@@ -180,11 +180,13 @@ LIBTORCH_USE_PYTORCH=1 cargo run --example tts_demo --release -- \
   "Hello! This is a test of the Qwen3 TTS system running on CI." \
   Vivian \
   english
+
+mv output.wav vivian_english.wav
 ```
 
 **Pass criteria:**
 - Exits 0
-- Produces `output.wav`
+- Produces `output.wav` (renamed to `vivian_english.wav`)
 - Output is a valid WAV file at 24kHz
 - Reported duration is > 0 seconds
 
@@ -198,11 +200,13 @@ LIBTORCH_USE_PYTORCH=1 cargo run --example tts_demo --release -- \
   "你好！这是Qwen3语音合成系统的持续集成测试。" \
   Vivian \
   chinese
+
+mv output.wav vivian_chinese.wav
 ```
 
 **Pass criteria:**
 - Exits 0
-- Produces `output.wav`
+- Produces `output.wav` (renamed to `vivian_chinese.wav`)
 - Output is a valid WAV file at 24kHz
 - Reported duration is > 0 seconds
 
@@ -216,6 +220,7 @@ LIBTORCH_USE_PYTORCH=1 cargo run --example tts_demo --release -- \
   "The quick brown fox jumps over the lazy dog." \
   Ryan \
   english
+
 mv output.wav ryan_reference.wav
 ```
 
@@ -234,6 +239,8 @@ LIBTORCH_USE_PYTORCH=1 cargo run --example voice_clone_demo --release -- \
   ryan_reference.wav \
   "This is a voice cloning test using Ryan as the reference speaker." \
   english
+
+mv output_voice_clone.wav output_ryan_clone.wav
 ```
 
 **Depends on:** Test 3.4 (produces `ryan_reference.wav`)
@@ -242,7 +249,7 @@ LIBTORCH_USE_PYTORCH=1 cargo run --example voice_clone_demo --release -- \
 - Exits 0
 - Prints "Mode: X-vector only"
 - Reports speaker embedding shape `[1024]` and a non-zero norm
-- Produces `output_voice_clone.wav`
+- Produces `output_voice_clone.wav` (renamed to `output_ryan_clone.wav`)
 - Output is a valid WAV file at 24kHz
 - Reported duration is > 0 seconds
 
@@ -257,6 +264,8 @@ LIBTORCH_USE_PYTORCH=1 cargo run --example voice_clone_demo --release -- \
   "This is a voice cloning test with in-context learning." \
   english \
   "The quick brown fox jumps over the lazy dog."
+
+mv output_voice_clone.wav output_ryan_clone_icl.wav
 ```
 
 **Depends on:** Test 3.4 (produces `ryan_reference.wav`)
@@ -267,7 +276,7 @@ LIBTORCH_USE_PYTORCH=1 cargo run --example voice_clone_demo --release -- \
 - AudioEncoder loads from `speech_tokenizer/model.safetensors`
 - Reports encoded codec frame count > 0
 - Reports speaker embedding shape `[1024]` and a non-zero norm
-- Produces `output_voice_clone.wav`
+- Produces `output_voice_clone.wav` (renamed to `output_ryan_clone_icl.wav`)
 - Output is a valid WAV file at 24kHz
 - Reported duration is > 0 seconds
 - Reference portion is trimmed (printed "Trimming reference portion" message)
@@ -296,23 +305,11 @@ The CI uploads the following artifacts per platform:
 |----------|------------|
 | `target/release/examples/tts_demo` | Build (1.2) |
 | `target/release/examples/voice_clone_demo` | Build (1.2) |
-| `output_english.wav` | English generation (3.2) |
-| `output_chinese.wav` | Chinese generation (3.3) |
+| `vivian_english.wav` | English generation (3.2) |
+| `vivian_chinese.wav` | Chinese generation (3.3) |
 | `ryan_reference.wav` | Ryan reference (3.4) |
-| `output_voice_clone.wav` | X-vector voice clone (3.5) |
-| `output_voice_clone_icl.wav` | ICL voice clone (3.6) |
+| `output_ryan_clone.wav` | X-vector voice clone (3.5) |
+| `output_ryan_clone_icl.wav` | ICL voice clone (3.6) |
 
 **Pass criteria:** All 7 artifacts are present in the uploaded archive and are non-empty files.
 
----
-
-## 6. Manual Verification (Optional)
-
-These are subjective quality checks on the generated audio, not automated:
-
-- [ ] `output_english.wav` sounds like intelligible English speech
-- [ ] `output_chinese.wav` sounds like intelligible Chinese speech
-- [ ] `ryan_reference.wav` sounds like a different speaker than Vivian
-- [ ] `output_voice_clone.wav` sounds similar in timbre to `ryan_reference.wav`
-- [ ] `output_voice_clone_icl.wav` sounds similar in timbre to `ryan_reference.wav`, and is at least as close as the x-vector-only output
-- [ ] All outputs are free of obvious glitches, silence-only output, or excessive noise
