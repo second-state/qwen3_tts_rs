@@ -96,7 +96,7 @@ jobs:
             "Hello! This is a test of the Qwen3 TTS system running on CI." \
             Vivian \
             english
-          mv output.wav output_english.wav
+          mv output.wav vivian_english.wav
 
       - name: Generate Chinese audio
         env:
@@ -107,7 +107,7 @@ jobs:
             "你好！这是Qwen3语音合成系统的持续集成测试。" \
             Vivian \
             chinese
-          mv output.wav output_chinese.wav
+          mv output.wav vivian_chinese.wav
 
       - name: Generate Ryan reference audio
         env:
@@ -168,8 +168,8 @@ jobs:
           path: |
             target/release/examples/tts_demo
             target/release/examples/voice_clone_demo
-            output_english.wav
-            output_chinese.wav
+            vivian_english.wav
+            vivian_chinese.wav
             ryan_reference.wav
             output_ryan_clone.wav
             output_ryan_clone_icl.wav
