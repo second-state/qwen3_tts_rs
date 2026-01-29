@@ -260,7 +260,7 @@ fn main() -> anyhow::Result<()> {
         "Breaking news! There has been a major development.",
         "Vivian",   // speaker name
         "english",  // language
-        Some("Speak in an urgent and excited voice"),  // instruction
+        "Speak in an urgent and excited voice",  // instruction
         0.9,        // temperature
         50,         // top_k
         2048,       // max_codes
@@ -268,12 +268,12 @@ fn main() -> anyhow::Result<()> {
 
     write_wav_file("urgent_news.wav", &waveform, sample_rate)?;
 
-    // Without instruction (pass None for neutral voice)
+    // Without instruction (pass empty string for neutral voice)
     let (waveform, sample_rate) = inference.generate_with_instruct(
         "This is a normal announcement.",
         "Vivian",
         "english",
-        None,  // no instruction
+        "",  // no instruction
         0.9,
         50,
         2048,

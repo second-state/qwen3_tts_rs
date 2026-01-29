@@ -47,7 +47,7 @@ fn main() -> anyhow::Result<()> {
         .unwrap_or("Hello! This is a test of the Qwen3 TTS system.");
     let speaker = args.get(3).map(|s| s.as_str()).unwrap_or("Vivian");
     let language = args.get(4).map(|s| s.as_str()).unwrap_or("english");
-    let instruction = args.get(5).map(|s| s.as_str());
+    let instruction = args.get(5).map(|s| s.as_str()).unwrap_or("");
 
     println!("=== Qwen3 TTS Rust Demo ===");
     println!();
@@ -60,8 +60,8 @@ fn main() -> anyhow::Result<()> {
     println!("  Text: \"{}\"", text);
     println!("  Speaker: {}", speaker);
     println!("  Language: {}", language);
-    if let Some(inst) = instruction {
-        println!("  Instruction: \"{}\"", inst);
+    if !instruction.is_empty() {
+        println!("  Instruction: \"{}\"", instruction);
     }
     println!();
 

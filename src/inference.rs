@@ -1292,7 +1292,7 @@ impl TTSInference {
     ///     "This is urgent news!",
     ///     "Vivian",
     ///     "english",
-    ///     Some("Speak in an urgent and excited voice"),
+    ///     "Speak in an urgent and excited voice",
     ///     0.9,
     ///     50,
     ///     2048,
@@ -1304,7 +1304,7 @@ impl TTSInference {
         text: &str,
         speaker: &str,
         language: &str,
-        instruct: Option<&str>,
+        instruct: &str,
         temperature: f64,
         top_k: i64,
         max_codes: i64,
@@ -1333,8 +1333,8 @@ impl TTSInference {
             "Speaker: {} (id={}), Language: {} (id={})",
             speaker, speaker_id, language, language_id
         );
-        if let Some(inst) = instruct {
-            println!("Instruction: \"{}\"", inst);
+        if !instruct.is_empty() {
+            println!("Instruction: \"{}\"", instruct);
         }
 
         // Get special token IDs
@@ -1363,43 +1363,52 @@ impl TTSInference {
         let user_tokens = self.tokenize("user")?;
         let user_id = user_tokens.first().copied().unwrap_or(882) as i64;
 
-        // Build token sequence with optional instruction prefix
-        // Without instruction: [<|im_start|>, assistant, \n] + text + [<|im_end|>, \n, <|im_start|>, assistant, \n]
-        // With instruction: [<|im_start|>, user, \n] + instruct + [<|im_end|>, \n] + [<|im_start|>, assistant, \n] + text + [<|im_end|>, \n, <|im_start|>, assistant, \n]
-        let mut token_ids_i64 = Vec::new();
+        // Build instruction prefix embeddings (text + codec_pad for each position)
+        // The instruction is conditioning context, not synthesized speech
+        let instruct_embeddings = if !instruct.is_empty() {
+            // Tokenize instruction: <|im_start|>user\n{instruct}<|im_end|>\n
+            let instruct_tokens = self.tokenize(instruct)?;
+            let instruct_ids: Vec<i64> = instruct_tokens.iter().map(|&id| id as i64).collect();
 
-        if let Some(inst) = instruct {
-            if !inst.is_empty() {
-                // Add instruction prefix: <|im_start|>user\n{instruct}<|im_end|>\n
-                let instruct_tokens = self.tokenize(inst)?;
-                let instruct_ids: Vec<i64> = instruct_tokens.iter().map(|&id| id as i64).collect();
+            let mut instruct_token_ids = vec![im_start, user_id, newline_id];
+            instruct_token_ids.extend_from_slice(&instruct_ids);
+            instruct_token_ids.extend_from_slice(&[im_end, newline_id]);
 
-                token_ids_i64.push(im_start);
-                token_ids_i64.push(user_id);
-                token_ids_i64.push(newline_id);
-                token_ids_i64.extend_from_slice(&instruct_ids);
-                token_ids_i64.push(im_end);
-                token_ids_i64.push(newline_id);
-            }
-        }
+            // Embed instruction tokens (text side)
+            let instruct_text_embed = self.talker.embed_text(&instruct_token_ids);
 
-        // Add main text: <|im_start|>assistant\n{text}<|im_end|>\n<|im_start|>assistant\n
-        token_ids_i64.push(im_start);
-        token_ids_i64.push(assistant_id);
-        token_ids_i64.push(newline_id);
-        token_ids_i64.extend_from_slice(&text_ids);
-        token_ids_i64.extend_from_slice(&[im_end, newline_id, im_start, assistant_id, newline_id]);
+            // Codec side: codec_pad for all instruction positions
+            let codec_pad_embed = self.talker.embed_codec(&[codec_pad_id]);
+            let num_instruct = instruct_token_ids.len() as i64;
+            let codec_pad_repeated =
+                codec_pad_embed.expand([1, num_instruct, self.talker.hidden_size], false);
+
+            // Sum text + codec_pad for instruction
+            Some(&instruct_text_embed + &codec_pad_repeated)
+        } else {
+            None
+        };
+
+        // Build main text token sequence (without instruction)
+        // Format: [<|im_start|>, assistant, \n] + text + [<|im_end|>, \n, <|im_start|>, assistant, \n]
+        let mut main_token_ids = vec![im_start, assistant_id, newline_id];
+        main_token_ids.extend_from_slice(&text_ids);
+        main_token_ids.extend_from_slice(&[im_end, newline_id, im_start, assistant_id, newline_id]);
 
         println!(
-            "Token sequence: {} tokens, text = {} tokens",
-            token_ids_i64.len(),
+            "Token sequence: {} instruction + {} main tokens, text = {} tokens",
+            instruct_embeddings
+                .as_ref()
+                .map(|e| e.size()[1])
+                .unwrap_or(0),
+            main_token_ids.len(),
             text_ids.len(),
         );
 
-        // Build dual-stream input embeddings
+        // Build dual-stream input embeddings for main text
         println!("Building input embeddings...");
-        let input_embeddings = self.talker.build_input_embeddings(
-            &token_ids_i64,
+        let main_embeddings = self.talker.build_input_embeddings(
+            &main_token_ids,
             speaker_id,
             language_id,
             tts_pad_id,
@@ -1411,6 +1420,13 @@ impl TTSInference {
             codec_pad_id,
             codec_bos_id,
         );
+
+        // Concatenate instruction prefix (if any) with main embeddings
+        let input_embeddings = if let Some(inst_emb) = instruct_embeddings {
+            Tensor::cat(&[inst_emb, main_embeddings], 1)
+        } else {
+            main_embeddings
+        };
 
         // Pre-compute tts_pad embedding
         let tts_pad_embed = self.talker.embed_text(&[tts_pad_id]);
