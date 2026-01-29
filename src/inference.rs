@@ -1252,6 +1252,207 @@ impl TTSInference {
         Ok((waveform, sample_rate))
     }
 
+    /// Generate speech with instruction control.
+    ///
+    /// Instruction control allows modulating speech characteristics like tone,
+    /// emotion, and speaking style through natural language descriptions.
+    /// This feature is supported by the 1.7B CustomVoice model.
+    ///
+    /// # Arguments
+    /// * `text` - The text to synthesize
+    /// * `speaker` - Speaker name (e.g., "Vivian", "Ryan")
+    /// * `language` - Language code (e.g., "english", "chinese")
+    /// * `instruct` - Optional instruction for voice control (e.g., "Speak in an urgent voice")
+    /// * `temperature` - Sampling temperature (default: 0.9)
+    /// * `top_k` - Top-k sampling parameter (default: 50)
+    /// * `max_codes` - Maximum number of code frames to generate (default: 2048)
+    ///
+    /// # Example
+    /// ```ignore
+    /// let (waveform, sample_rate) = inference.generate_with_instruct(
+    ///     "This is urgent news!",
+    ///     "Vivian",
+    ///     "english",
+    ///     Some("Speak in an urgent and excited voice"),
+    ///     0.9,
+    ///     50,
+    ///     2048,
+    /// )?;
+    /// ```
+    #[allow(clippy::too_many_arguments)]
+    pub fn generate_with_instruct(
+        &self,
+        text: &str,
+        speaker: &str,
+        language: &str,
+        instruct: Option<&str>,
+        temperature: f64,
+        top_k: i64,
+        max_codes: i64,
+    ) -> Result<(Vec<f32>, u32)> {
+        // Get speaker ID
+        let speaker_id = self
+            .config
+            .talker_config
+            .spk_id
+            .as_ref()
+            .and_then(|map| map.get(&speaker.to_lowercase()))
+            .copied()
+            .unwrap_or(0) as i64;
+
+        // Get language ID
+        let language_id = self
+            .config
+            .talker_config
+            .codec_language_id
+            .as_ref()
+            .and_then(|map| map.get(&language.to_lowercase()))
+            .copied()
+            .unwrap_or(0) as i64;
+
+        println!("Speaker: {} (id={}), Language: {} (id={})", speaker, speaker_id, language, language_id);
+        if let Some(inst) = instruct {
+            println!("Instruction: \"{}\"", inst);
+        }
+
+        // Get special token IDs
+        let codec_eos_id = self.config.talker_config.codec_eos_token_id as i64;
+        let codec_think_id = self.config.talker_config.codec_think_id as i64;
+        let codec_think_bos_id = self.config.talker_config.codec_think_bos_id as i64;
+        let codec_think_eos_id = self.config.talker_config.codec_think_eos_id as i64;
+        let codec_pad_id = self.config.talker_config.codec_pad_id as i64;
+        let codec_bos_id = self.config.talker_config.codec_bos_id as i64;
+        let tts_pad_id = self.config.tts_pad_token_id as i64;
+        let tts_bos_id = self.config.tts_bos_token_id as i64;
+        let tts_eos_id = self.config.tts_eos_token_id as i64;
+
+        // Build token sequence
+        let im_start = self.config.im_start_token_id as i64;
+        let im_end = self.config.im_end_token_id as i64;
+        let assistant_id = self.config.assistant_token_id as i64;
+
+        // Tokenize text content
+        let text_tokens = self.tokenize(text)?;
+        let text_ids: Vec<i64> = text_tokens.iter().map(|&id| id as i64).collect();
+
+        // Tokenize special strings
+        let newline_tokens = self.tokenize("\n")?;
+        let newline_id = newline_tokens.first().copied().unwrap_or(198) as i64;
+        let user_tokens = self.tokenize("user")?;
+        let user_id = user_tokens.first().copied().unwrap_or(882) as i64;
+
+        // Build token sequence with optional instruction prefix
+        // Without instruction: [<|im_start|>, assistant, \n] + text + [<|im_end|>, \n, <|im_start|>, assistant, \n]
+        // With instruction: [<|im_start|>, user, \n] + instruct + [<|im_end|>, \n] + [<|im_start|>, assistant, \n] + text + [<|im_end|>, \n, <|im_start|>, assistant, \n]
+        let mut token_ids_i64 = Vec::new();
+
+        if let Some(inst) = instruct {
+            if !inst.is_empty() {
+                // Add instruction prefix: <|im_start|>user\n{instruct}<|im_end|>\n
+                let instruct_tokens = self.tokenize(inst)?;
+                let instruct_ids: Vec<i64> = instruct_tokens.iter().map(|&id| id as i64).collect();
+
+                token_ids_i64.push(im_start);
+                token_ids_i64.push(user_id);
+                token_ids_i64.push(newline_id);
+                token_ids_i64.extend_from_slice(&instruct_ids);
+                token_ids_i64.push(im_end);
+                token_ids_i64.push(newline_id);
+            }
+        }
+
+        // Add main text: <|im_start|>assistant\n{text}<|im_end|>\n<|im_start|>assistant\n
+        token_ids_i64.push(im_start);
+        token_ids_i64.push(assistant_id);
+        token_ids_i64.push(newline_id);
+        token_ids_i64.extend_from_slice(&text_ids);
+        token_ids_i64.extend_from_slice(&[im_end, newline_id, im_start, assistant_id, newline_id]);
+
+        println!(
+            "Token sequence: {} tokens, text = {} tokens",
+            token_ids_i64.len(),
+            text_ids.len(),
+        );
+
+        // Build dual-stream input embeddings
+        println!("Building input embeddings...");
+        let input_embeddings = self.talker.build_input_embeddings(
+            &token_ids_i64,
+            speaker_id,
+            language_id,
+            tts_pad_id,
+            tts_bos_id,
+            tts_eos_id,
+            codec_think_id,
+            codec_think_bos_id,
+            codec_think_eos_id,
+            codec_pad_id,
+            codec_bos_id,
+        );
+
+        // Pre-compute tts_pad embedding
+        let tts_pad_embed = self.talker.embed_text(&[tts_pad_id]);
+
+        // Generate codes
+        println!(
+            "Generating audio codes (temp={}, top_k={}, max={})...",
+            temperature, top_k, max_codes
+        );
+        let codes = self.talker.generate_codes(
+            &input_embeddings,
+            max_codes,
+            temperature,
+            top_k,
+            codec_eos_id,
+            &tts_pad_embed,
+        );
+        println!("Generated {} code frames", codes.len());
+
+        // Decode with vocoder
+        let sample_rate = 24000u32;
+        let waveform = if codes.is_empty() {
+            println!("Warning: No codes generated, returning silence");
+            vec![0.0; sample_rate as usize * 2]
+        } else if let Some(ref vocoder) = self.vocoder {
+            let num_frames = codes.len();
+            let num_quantizers = 16;
+            let codebook_size = self.config.talker_config.code_predictor_config.vocab_size as i64;
+
+            let mut codes_flat = Vec::with_capacity(num_quantizers * num_frames);
+            for q in 0..num_quantizers {
+                for frame_codes in &codes {
+                    let code = if q < frame_codes.len() {
+                        frame_codes[q].clamp(0, codebook_size - 1)
+                    } else {
+                        0
+                    };
+                    codes_flat.push(code);
+                }
+            }
+
+            let codes_tensor = Tensor::from_slice(&codes_flat)
+                .view([num_quantizers as i64, num_frames as i64])
+                .unsqueeze(0)
+                .to_device(self.device);
+
+            let audio_tensor = vocoder.decode(&codes_tensor);
+            let audio_len = audio_tensor.numel();
+            Vec::<f32>::try_from(audio_tensor.view([audio_len as i64]).to_kind(Kind::Float))
+                .unwrap_or_else(|_| vec![0.0; audio_len])
+        } else {
+            println!("Warning: Vocoder not loaded");
+            vec![0.0; sample_rate as usize * 2]
+        };
+
+        println!(
+            "Generated {} samples ({:.2} seconds)",
+            waveform.len(),
+            waveform.len() as f64 / sample_rate as f64
+        );
+
+        Ok((waveform, sample_rate))
+    }
+
     /// Get a reference to the loaded model weights.
     pub fn weights(&self) -> &HashMap<String, Tensor> {
         &self.weights

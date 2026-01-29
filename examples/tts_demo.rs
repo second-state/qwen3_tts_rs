@@ -4,10 +4,13 @@
 //! Demo: Generate speech from text using Qwen3 TTS.
 //!
 //! Usage:
-//!   cargo run --example tts_demo -- <model_path> [text] [speaker] [language]
+//!   cargo run --example tts_demo -- <model_path> [text] [speaker] [language] [instruction]
 //!
-//! Example:
+//! Example (basic):
 //!   cargo run --example tts_demo -- ./models/Qwen3-TTS-12Hz-0.6B-CustomVoice "Hello, world!" Vivian english
+//!
+//! Example (with instruction control, requires 1.7B model):
+//!   cargo run --example tts_demo -- ./models/Qwen3-TTS-12Hz-1.7B-CustomVoice "This is urgent news!" Vivian english "Speak in an urgent and excited voice"
 
 use qwen3_tts::audio::write_wav_file;
 use qwen3_tts::inference::TTSInference;
@@ -19,13 +22,19 @@ fn main() -> anyhow::Result<()> {
 
     if args.len() < 2 {
         eprintln!(
-            "Usage: {} <model_path> [text] [speaker] [language]",
+            "Usage: {} <model_path> [text] [speaker] [language] [instruction]",
             args[0]
         );
         eprintln!();
-        eprintln!("Example:");
+        eprintln!("Example (basic):");
         eprintln!(
             "  {} ./models/Qwen3-TTS-12Hz-0.6B-CustomVoice \"Hello, world!\" Vivian english",
+            args[0]
+        );
+        eprintln!();
+        eprintln!("Example (with instruction control, requires 1.7B model):");
+        eprintln!(
+            "  {} ./models/Qwen3-TTS-12Hz-1.7B-CustomVoice \"This is urgent news!\" Vivian english \"Speak in an urgent voice\"",
             args[0]
         );
         std::process::exit(1);
@@ -38,6 +47,7 @@ fn main() -> anyhow::Result<()> {
         .unwrap_or("Hello! This is a test of the Qwen3 TTS system.");
     let speaker = args.get(3).map(|s| s.as_str()).unwrap_or("Vivian");
     let language = args.get(4).map(|s| s.as_str()).unwrap_or("english");
+    let instruction = args.get(5).map(|s| s.as_str());
 
     println!("=== Qwen3 TTS Rust Demo ===");
     println!();
@@ -50,9 +60,20 @@ fn main() -> anyhow::Result<()> {
     println!("  Text: \"{}\"", text);
     println!("  Speaker: {}", speaker);
     println!("  Language: {}", language);
+    if let Some(inst) = instruction {
+        println!("  Instruction: \"{}\"", inst);
+    }
     println!();
 
-    let (waveform, sample_rate) = inference.generate(text, speaker, language)?;
+    let (waveform, sample_rate) = inference.generate_with_instruct(
+        text,
+        speaker,
+        language,
+        instruction,
+        0.9,  // temperature
+        50,   // top_k
+        2048, // max_codes
+    )?;
 
     let output_path = "output.wav";
     println!();
