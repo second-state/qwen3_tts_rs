@@ -120,22 +120,23 @@ impl CodePredictor {
         println!("  Loaded {} code_predictor LM heads", lm_heads.len());
 
         // Load optional small_to_mtp_projection (present in 1.7B+ models)
-        let small_to_mtp_projection =
-            if let Some(proj_weight) = weights.get("talker.code_predictor.small_to_mtp_projection.weight") {
-                let proj_bias = weights.get("talker.code_predictor.small_to_mtp_projection.bias");
-                let proj = if let Some(bias) = proj_bias {
-                    Linear::from_weights_with_bias(
-                        proj_weight.to_device(device).to_kind(Kind::Float),
-                        bias.to_device(device).to_kind(Kind::Float),
-                    )
-                } else {
-                    Linear::from_weights(proj_weight.to_device(device).to_kind(Kind::Float))
-                };
-                println!("  Loaded small_to_mtp_projection");
-                Some(proj)
+        let small_to_mtp_projection = if let Some(proj_weight) =
+            weights.get("talker.code_predictor.small_to_mtp_projection.weight")
+        {
+            let proj_bias = weights.get("talker.code_predictor.small_to_mtp_projection.bias");
+            let proj = if let Some(bias) = proj_bias {
+                Linear::from_weights_with_bias(
+                    proj_weight.to_device(device).to_kind(Kind::Float),
+                    bias.to_device(device).to_kind(Kind::Float),
+                )
             } else {
-                None
+                Linear::from_weights(proj_weight.to_device(device).to_kind(Kind::Float))
             };
+            println!("  Loaded small_to_mtp_projection");
+            Some(proj)
+        } else {
+            None
+        };
 
         // Create rotary embedding
         let rotary_emb = RotaryEmbedding::new(
@@ -1310,7 +1311,10 @@ impl TTSInference {
             .copied()
             .unwrap_or(0) as i64;
 
-        println!("Speaker: {} (id={}), Language: {} (id={})", speaker, speaker_id, language, language_id);
+        println!(
+            "Speaker: {} (id={}), Language: {} (id={})",
+            speaker, speaker_id, language, language_id
+        );
         if let Some(inst) = instruct {
             println!("Instruction: \"{}\"", inst);
         }
