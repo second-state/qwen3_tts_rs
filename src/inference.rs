@@ -120,22 +120,23 @@ impl CodePredictor {
         println!("  Loaded {} code_predictor LM heads", lm_heads.len());
 
         // Load optional small_to_mtp_projection (present in 1.7B+ models)
-        let small_to_mtp_projection =
-            if let Some(proj_weight) = weights.get("talker.code_predictor.small_to_mtp_projection.weight") {
-                let proj_bias = weights.get("talker.code_predictor.small_to_mtp_projection.bias");
-                let proj = if let Some(bias) = proj_bias {
-                    Linear::from_weights_with_bias(
-                        proj_weight.to_device(device).to_kind(Kind::Float),
-                        bias.to_device(device).to_kind(Kind::Float),
-                    )
-                } else {
-                    Linear::from_weights(proj_weight.to_device(device).to_kind(Kind::Float))
-                };
-                println!("  Loaded small_to_mtp_projection");
-                Some(proj)
+        let small_to_mtp_projection = if let Some(proj_weight) =
+            weights.get("talker.code_predictor.small_to_mtp_projection.weight")
+        {
+            let proj_bias = weights.get("talker.code_predictor.small_to_mtp_projection.bias");
+            let proj = if let Some(bias) = proj_bias {
+                Linear::from_weights_with_bias(
+                    proj_weight.to_device(device).to_kind(Kind::Float),
+                    bias.to_device(device).to_kind(Kind::Float),
+                )
             } else {
-                None
+                Linear::from_weights(proj_weight.to_device(device).to_kind(Kind::Float))
             };
+            println!("  Loaded small_to_mtp_projection");
+            Some(proj)
+        } else {
+            None
+        };
 
         // Create rotary embedding
         let rotary_emb = RotaryEmbedding::new(
@@ -1041,6 +1042,71 @@ impl TTSInference {
         Ok(encoding.get_ids().to_vec())
     }
 
+    /// Decode codec frames to audio waveform using the vocoder.
+    ///
+    /// This helper method handles the consistent vocoder decoding logic:
+    /// - Determines num_quantizers dynamically from the actual code data
+    /// - Uses fixed codebook_size of 2048 (matches model architecture)
+    /// - Counts and reports out-of-range codes for debugging
+    /// - Returns None if no vocoder is loaded or codes are empty
+    fn decode_codes_to_audio(&self, codes: &[Vec<i64>]) -> Option<Vec<f32>> {
+        if codes.is_empty() {
+            println!("Warning: No codes to decode");
+            return None;
+        }
+
+        let vocoder = self.vocoder.as_ref()?;
+
+        println!("Decoding audio with vocoder...");
+
+        let num_frames = codes.len();
+        let num_quantizers = codes[0].len();
+        let codebook_size = 2048i64;
+
+        // Flatten codes and clamp to valid range, counting out-of-range values
+        let mut codes_flat: Vec<i64> = Vec::with_capacity(num_quantizers * num_frames);
+        let mut out_of_range = 0;
+        for q in 0..num_quantizers {
+            for frame in codes {
+                let code = if q < frame.len() { frame[q] } else { 0 };
+                if code < 0 || code >= codebook_size {
+                    out_of_range += 1;
+                    codes_flat.push(code.clamp(0, codebook_size - 1));
+                } else {
+                    codes_flat.push(code);
+                }
+            }
+        }
+        if out_of_range > 0 {
+            println!(
+                "Warning: {} codes out of range [0, {}), clamped",
+                out_of_range, codebook_size
+            );
+        }
+
+        // Create tensor [1, num_quantizers, num_frames]
+        let codes_tensor = Tensor::from_slice(&codes_flat)
+            .view([num_quantizers as i64, num_frames as i64])
+            .unsqueeze(0)
+            .to_device(self.device);
+
+        println!("Codes tensor shape: {:?}", codes_tensor.size());
+
+        // Decode with vocoder
+        let audio_tensor = vocoder.decode(&codes_tensor);
+        println!("Vocoder output shape: {:?}", audio_tensor.size());
+
+        // Convert tensor to Vec<f32>
+        let audio_len = audio_tensor.numel();
+        let waveform =
+            Vec::<f32>::try_from(audio_tensor.view([audio_len as i64]).to_kind(Kind::Float))
+                .unwrap_or_else(|_| vec![0.0; audio_len]);
+
+        println!("Decoded {} audio samples", waveform.len());
+
+        Some(waveform)
+    }
+
     /// Generate speech from text.
     pub fn generate(&self, text: &str, speaker: &str, language: &str) -> Result<(Vec<f32>, u32)> {
         self.generate_with_params(text, speaker, language, 0.9, 50, 2048)
@@ -1170,60 +1236,13 @@ impl TTSInference {
 
         // Convert codes to audio using vocoder
         let sample_rate = 24000u32;
-        let waveform: Vec<f32>;
-
-        if codes.is_empty() {
+        let waveform = if let Some(audio) = self.decode_codes_to_audio(&codes) {
+            audio
+        } else if codes.is_empty() {
             println!("Warning: No codes generated, returning silence");
-            let num_samples = sample_rate as usize * 2;
-            waveform = vec![0.0; num_samples];
-        } else if let Some(ref vocoder) = self.vocoder {
-            println!("Decoding audio with vocoder...");
-
-            let num_frames = codes.len();
-            let num_quantizers = codes[0].len();
-
-            // Clamp codes to valid codebook range [0, 2047]
-            let codebook_size = 2048i64;
-            let mut codes_flat: Vec<i64> = Vec::with_capacity(num_quantizers * num_frames);
-            let mut out_of_range = 0;
-            for q in 0..num_quantizers {
-                for frame in &codes {
-                    let code = frame[q];
-                    if code < 0 || code >= codebook_size {
-                        out_of_range += 1;
-                        codes_flat.push(code.clamp(0, codebook_size - 1));
-                    } else {
-                        codes_flat.push(code);
-                    }
-                }
-            }
-            if out_of_range > 0 {
-                println!(
-                    "Warning: {} codes out of range [0, {}), clamped",
-                    out_of_range, codebook_size
-                );
-            }
-
-            // Create tensor [num_quantizers, seq_len] then unsqueeze to [1, num_quantizers, seq_len]
-            let codes_tensor = Tensor::from_slice(&codes_flat)
-                .view([num_quantizers as i64, num_frames as i64])
-                .unsqueeze(0)
-                .to_device(self.device);
-
-            println!("Codes tensor shape: {:?}", codes_tensor.size());
-
-            // Decode with vocoder
-            let audio_tensor = vocoder.decode(&codes_tensor);
-            println!("Vocoder output shape: {:?}", audio_tensor.size());
-
-            // Convert tensor to Vec<f32>
-            let audio_len = audio_tensor.numel();
-            waveform =
-                Vec::<f32>::try_from(audio_tensor.view([audio_len as i64]).to_kind(Kind::Float))
-                    .unwrap_or_else(|_| vec![0.0; audio_len]);
-
-            println!("Decoded {} audio samples", waveform.len());
+            vec![0.0; sample_rate as usize * 2]
         } else {
+            // Placeholder synthesis when vocoder not loaded
             println!("Warning: Vocoder not loaded, using placeholder synthesis");
             let samples_per_frame = 200;
             let codebook_size = self.config.talker_config.code_predictor_config.vocab_size as f32;
@@ -1240,8 +1259,198 @@ impl TTSInference {
                     samples.push(sample);
                 }
             }
-            waveform = samples;
+            samples
+        };
+
+        println!(
+            "Generated {} samples ({:.2} seconds)",
+            waveform.len(),
+            waveform.len() as f64 / sample_rate as f64
+        );
+
+        Ok((waveform, sample_rate))
+    }
+
+    /// Generate speech with instruction control.
+    ///
+    /// Instruction control allows modulating speech characteristics like tone,
+    /// emotion, and speaking style through natural language descriptions.
+    /// This feature is supported by the 1.7B CustomVoice model.
+    ///
+    /// # Arguments
+    /// * `text` - The text to synthesize
+    /// * `speaker` - Speaker name (e.g., "Vivian", "Ryan")
+    /// * `language` - Language code (e.g., "english", "chinese")
+    /// * `instruct` - Optional instruction for voice control (e.g., "Speak in an urgent voice")
+    /// * `temperature` - Sampling temperature (default: 0.9)
+    /// * `top_k` - Top-k sampling parameter (default: 50)
+    /// * `max_codes` - Maximum number of code frames to generate (default: 2048)
+    ///
+    /// # Example
+    /// ```ignore
+    /// let (waveform, sample_rate) = inference.generate_with_instruct(
+    ///     "This is urgent news!",
+    ///     "Vivian",
+    ///     "english",
+    ///     "Speak in an urgent and excited voice",
+    ///     0.9,
+    ///     50,
+    ///     2048,
+    /// )?;
+    /// ```
+    #[allow(clippy::too_many_arguments)]
+    pub fn generate_with_instruct(
+        &self,
+        text: &str,
+        speaker: &str,
+        language: &str,
+        instruct: &str,
+        temperature: f64,
+        top_k: i64,
+        max_codes: i64,
+    ) -> Result<(Vec<f32>, u32)> {
+        // Get speaker ID
+        let speaker_id = self
+            .config
+            .talker_config
+            .spk_id
+            .as_ref()
+            .and_then(|map| map.get(&speaker.to_lowercase()))
+            .copied()
+            .unwrap_or(0) as i64;
+
+        // Get language ID
+        let language_id = self
+            .config
+            .talker_config
+            .codec_language_id
+            .as_ref()
+            .and_then(|map| map.get(&language.to_lowercase()))
+            .copied()
+            .unwrap_or(0) as i64;
+
+        println!(
+            "Speaker: {} (id={}), Language: {} (id={})",
+            speaker, speaker_id, language, language_id
+        );
+        if !instruct.is_empty() {
+            println!("Instruction: \"{}\"", instruct);
         }
+
+        // Get special token IDs
+        let codec_eos_id = self.config.talker_config.codec_eos_token_id as i64;
+        let codec_think_id = self.config.talker_config.codec_think_id as i64;
+        let codec_think_bos_id = self.config.talker_config.codec_think_bos_id as i64;
+        let codec_think_eos_id = self.config.talker_config.codec_think_eos_id as i64;
+        let codec_pad_id = self.config.talker_config.codec_pad_id as i64;
+        let codec_bos_id = self.config.talker_config.codec_bos_id as i64;
+        let tts_pad_id = self.config.tts_pad_token_id as i64;
+        let tts_bos_id = self.config.tts_bos_token_id as i64;
+        let tts_eos_id = self.config.tts_eos_token_id as i64;
+
+        // Build token sequence
+        let im_start = self.config.im_start_token_id as i64;
+        let im_end = self.config.im_end_token_id as i64;
+        let assistant_id = self.config.assistant_token_id as i64;
+
+        // Tokenize text content
+        let text_tokens = self.tokenize(text)?;
+        let text_ids: Vec<i64> = text_tokens.iter().map(|&id| id as i64).collect();
+
+        // Tokenize special strings
+        let newline_tokens = self.tokenize("\n")?;
+        let newline_id = newline_tokens.first().copied().unwrap_or(198) as i64;
+        let user_tokens = self.tokenize("user")?;
+        let user_id = user_tokens.first().copied().unwrap_or(882) as i64;
+
+        // Build instruction prefix embeddings (text + codec_pad for each position)
+        // The instruction is conditioning context, not synthesized speech
+        let instruct_embeddings = if !instruct.is_empty() {
+            // Tokenize instruction: <|im_start|>user\n{instruct}<|im_end|>\n
+            let instruct_tokens = self.tokenize(instruct)?;
+            let instruct_ids: Vec<i64> = instruct_tokens.iter().map(|&id| id as i64).collect();
+
+            let mut instruct_token_ids = vec![im_start, user_id, newline_id];
+            instruct_token_ids.extend_from_slice(&instruct_ids);
+            instruct_token_ids.extend_from_slice(&[im_end, newline_id]);
+
+            // Embed instruction tokens (text side)
+            let instruct_text_embed = self.talker.embed_text(&instruct_token_ids);
+
+            // Codec side: codec_pad for all instruction positions
+            let codec_pad_embed = self.talker.embed_codec(&[codec_pad_id]);
+            let num_instruct = instruct_token_ids.len() as i64;
+            let codec_pad_repeated =
+                codec_pad_embed.expand([1, num_instruct, self.talker.hidden_size], false);
+
+            // Sum text + codec_pad for instruction
+            Some(&instruct_text_embed + &codec_pad_repeated)
+        } else {
+            None
+        };
+
+        // Build main text token sequence (without instruction)
+        // Format: [<|im_start|>, assistant, \n] + text + [<|im_end|>, \n, <|im_start|>, assistant, \n]
+        let mut main_token_ids = vec![im_start, assistant_id, newline_id];
+        main_token_ids.extend_from_slice(&text_ids);
+        main_token_ids.extend_from_slice(&[im_end, newline_id, im_start, assistant_id, newline_id]);
+
+        println!(
+            "Token sequence: {} instruction + {} main tokens, text = {} tokens",
+            instruct_embeddings
+                .as_ref()
+                .map(|e| e.size()[1])
+                .unwrap_or(0),
+            main_token_ids.len(),
+            text_ids.len(),
+        );
+
+        // Build dual-stream input embeddings for main text
+        println!("Building input embeddings...");
+        let main_embeddings = self.talker.build_input_embeddings(
+            &main_token_ids,
+            speaker_id,
+            language_id,
+            tts_pad_id,
+            tts_bos_id,
+            tts_eos_id,
+            codec_think_id,
+            codec_think_bos_id,
+            codec_think_eos_id,
+            codec_pad_id,
+            codec_bos_id,
+        );
+
+        // Concatenate instruction prefix (if any) with main embeddings
+        let input_embeddings = if let Some(inst_emb) = instruct_embeddings {
+            Tensor::cat(&[inst_emb, main_embeddings], 1)
+        } else {
+            main_embeddings
+        };
+
+        // Pre-compute tts_pad embedding
+        let tts_pad_embed = self.talker.embed_text(&[tts_pad_id]);
+
+        // Generate codes
+        println!(
+            "Generating audio codes (temp={}, top_k={}, max={})...",
+            temperature, top_k, max_codes
+        );
+        let codes = self.talker.generate_codes(
+            &input_embeddings,
+            max_codes,
+            temperature,
+            top_k,
+            codec_eos_id,
+            &tts_pad_embed,
+        );
+        println!("Generated {} code frames", codes.len());
+
+        // Decode with vocoder
+        let sample_rate = 24000u32;
+        let waveform = self
+            .decode_codes_to_audio(&codes)
+            .unwrap_or_else(|| vec![0.0; sample_rate as usize * 2]);
 
         println!(
             "Generated {} samples ({:.2} seconds)",
@@ -1358,62 +1567,11 @@ impl TTSInference {
         );
         println!("Generated {} code frames", codes.len());
 
-        // Convert codes to audio using vocoder (same as generate_with_params)
+        // Convert codes to audio using vocoder
         let sample_rate = 24000u32;
-        let waveform: Vec<f32>;
-
-        if codes.is_empty() {
-            println!("Warning: No codes generated, returning silence");
-            let num_samples = sample_rate as usize * 2;
-            waveform = vec![0.0; num_samples];
-        } else if let Some(ref vocoder) = self.vocoder {
-            println!("Decoding audio with vocoder...");
-
-            let num_frames = codes.len();
-            let num_quantizers = codes[0].len();
-
-            let codebook_size = 2048i64;
-            let mut codes_flat: Vec<i64> = Vec::with_capacity(num_quantizers * num_frames);
-            let mut out_of_range = 0;
-            for q in 0..num_quantizers {
-                for frame in &codes {
-                    let code = frame[q];
-                    if code < 0 || code >= codebook_size {
-                        out_of_range += 1;
-                        codes_flat.push(code.clamp(0, codebook_size - 1));
-                    } else {
-                        codes_flat.push(code);
-                    }
-                }
-            }
-            if out_of_range > 0 {
-                println!(
-                    "Warning: {} codes out of range [0, {}), clamped",
-                    out_of_range, codebook_size
-                );
-            }
-
-            let codes_tensor = Tensor::from_slice(&codes_flat)
-                .view([num_quantizers as i64, num_frames as i64])
-                .unsqueeze(0)
-                .to_device(self.device);
-
-            println!("Codes tensor shape: {:?}", codes_tensor.size());
-
-            let audio_tensor = vocoder.decode(&codes_tensor);
-            println!("Vocoder output shape: {:?}", audio_tensor.size());
-
-            let audio_len = audio_tensor.numel();
-            waveform =
-                Vec::<f32>::try_from(audio_tensor.view([audio_len as i64]).to_kind(Kind::Float))
-                    .unwrap_or_else(|_| vec![0.0; audio_len]);
-
-            println!("Decoded {} audio samples", waveform.len());
-        } else {
-            println!("Warning: Vocoder not loaded, generating placeholder audio");
-            let num_samples = sample_rate as usize * 2;
-            waveform = vec![0.0; num_samples];
-        }
+        let waveform = self
+            .decode_codes_to_audio(&codes)
+            .unwrap_or_else(|| vec![0.0; sample_rate as usize * 2]);
 
         println!(
             "Generated {} samples ({:.2} seconds)",
@@ -1555,53 +1713,12 @@ impl TTSInference {
         all_codes.extend_from_slice(ref_codes);
         all_codes.extend_from_slice(&generated_codes);
 
-        // Decode with vocoder
+        // Decode with vocoder and trim reference portion
         let sample_rate = 24000u32;
-        let waveform: Vec<f32>;
-
-        if all_codes.is_empty() || gen_len == 0 {
+        let waveform = if gen_len == 0 {
             println!("Warning: No codes generated, returning silence");
-            let num_samples = sample_rate as usize * 2;
-            waveform = vec![0.0; num_samples];
-        } else if let Some(ref vocoder) = self.vocoder {
-            println!("Decoding concatenated audio with vocoder...");
-
-            let num_frames = all_codes.len();
-            let num_quantizers = all_codes[0].len();
-            let codebook_size = 2048i64;
-
-            let mut codes_flat: Vec<i64> = Vec::with_capacity(num_quantizers * num_frames);
-            let mut out_of_range = 0;
-            for q in 0..num_quantizers {
-                for frame in &all_codes {
-                    let code = frame[q];
-                    if code < 0 || code >= codebook_size {
-                        out_of_range += 1;
-                        codes_flat.push(code.clamp(0, codebook_size - 1));
-                    } else {
-                        codes_flat.push(code);
-                    }
-                }
-            }
-            if out_of_range > 0 {
-                println!(
-                    "Warning: {} codes out of range [0, {}), clamped",
-                    out_of_range, codebook_size
-                );
-            }
-
-            let codes_tensor = Tensor::from_slice(&codes_flat)
-                .view([num_quantizers as i64, num_frames as i64])
-                .unsqueeze(0)
-                .to_device(self.device);
-
-            let audio_tensor = vocoder.decode(&codes_tensor);
-
-            let audio_len = audio_tensor.numel();
-            let full_waveform =
-                Vec::<f32>::try_from(audio_tensor.view([audio_len as i64]).to_kind(Kind::Float))
-                    .unwrap_or_else(|_| vec![0.0; audio_len]);
-
+            vec![0.0; sample_rate as usize * 2]
+        } else if let Some(full_waveform) = self.decode_codes_to_audio(&all_codes) {
             // Trim reference portion from output
             // cut = ref_len / total_len * waveform_len
             let cut =
@@ -1611,14 +1728,12 @@ impl TTSInference {
                 cut,
                 full_waveform.len()
             );
-            waveform = full_waveform[cut..].to_vec();
-
-            println!("Final output: {} samples", waveform.len());
+            let trimmed = full_waveform[cut..].to_vec();
+            println!("Final output: {} samples", trimmed.len());
+            trimmed
         } else {
-            println!("Warning: Vocoder not loaded, generating placeholder audio");
-            let num_samples = sample_rate as usize * 2;
-            waveform = vec![0.0; num_samples];
-        }
+            vec![0.0; sample_rate as usize * 2]
+        };
 
         println!(
             "Generated {} samples ({:.2} seconds)",

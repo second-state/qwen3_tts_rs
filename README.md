@@ -58,10 +58,16 @@ export LD_LIBRARY_PATH=$(pwd)/libtorch/lib:$LD_LIBRARY_PATH
 
 ### Download the model
 
-Download the Qwen3-TTS model weights. For speech synthesis with named speakers (CustomVoice):
+Download the Qwen3-TTS model weights. For speech synthesis with named speakers (CustomVoice 0.6B):
 
 ```bash
 huggingface-cli download Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice --local-dir models/Qwen3-TTS-12Hz-0.6B-CustomVoice
+```
+
+For instruction-controlled voice synthesis (CustomVoice 1.7B, supports emotion/style control):
+
+```bash
+huggingface-cli download Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice --local-dir models/Qwen3-TTS-12Hz-1.7B-CustomVoice
 ```
 
 For voice cloning from reference audio (Base):
@@ -77,7 +83,7 @@ The Rust `tokenizers` crate requires a `tokenizer.json` file with the full token
 ```bash
 python3 -c "
 from transformers import AutoTokenizer
-for model in ['Qwen3-TTS-12Hz-0.6B-CustomVoice', 'Qwen3-TTS-12Hz-0.6B-Base']:
+for model in ['Qwen3-TTS-12Hz-0.6B-CustomVoice', 'Qwen3-TTS-12Hz-0.6B-Base', 'Qwen3-TTS-12Hz-1.7B-CustomVoice']:
     path = f'models/{model}'
     tok = AutoTokenizer.from_pretrained(path, trust_remote_code=True)
     tok.backend_tokenizer.save(f'{path}/tokenizer.json')
@@ -100,7 +106,7 @@ cargo build --release
 Generate speech from text:
 
 ```bash
-cargo run --example tts_demo --release -- <model_path> [text] [speaker] [language]
+cargo run --example tts_demo --release -- <model_path> [text] [speaker] [language] [instruction]
 ```
 
 Example:
@@ -114,6 +120,25 @@ cargo run --example tts_demo --release -- \
 ```
 
 This generates an `output.wav` file with 24kHz audio.
+
+### Instruction-Controlled Voice (1.7B CustomVoice)
+
+The 1.7B CustomVoice model supports instruction control to modulate voice characteristics like emotion, speaking style, and pace:
+
+```bash
+cargo run --example tts_demo --release -- \
+  models/Qwen3-TTS-12Hz-1.7B-CustomVoice \
+  "Breaking news! There has been a major development." \
+  Vivian \
+  english \
+  "Speak in an urgent and excited voice"
+```
+
+Other instruction examples:
+- `"Speak happily and joyfully"`
+- `"Speak slowly and calmly"`
+- `"Speak in a whisper"`
+- `"Speak with a sad tone"`
 
 ### Voice Clone Demo
 
@@ -212,6 +237,51 @@ let (waveform, sample_rate) = inference.generate_with_params(
     30,    // top_k
     4096,  // max_codes
 )?;
+```
+
+### Instruction-Controlled Voice (1.7B CustomVoice)
+
+The 1.7B CustomVoice model supports instruction control to modulate voice characteristics:
+
+```rust
+use qwen3_tts::audio::write_wav_file;
+use qwen3_tts::inference::TTSInference;
+use std::path::Path;
+use tch::Device;
+
+fn main() -> anyhow::Result<()> {
+    let inference = TTSInference::new(
+        Path::new("models/Qwen3-TTS-12Hz-1.7B-CustomVoice"),
+        Device::Cpu,
+    )?;
+
+    // Generate with instruction control
+    let (waveform, sample_rate) = inference.generate_with_instruct(
+        "Breaking news! There has been a major development.",
+        "Vivian",   // speaker name
+        "english",  // language
+        "Speak in an urgent and excited voice",  // instruction
+        0.9,        // temperature
+        50,         // top_k
+        2048,       // max_codes
+    )?;
+
+    write_wav_file("urgent_news.wav", &waveform, sample_rate)?;
+
+    // Without instruction (pass empty string for neutral voice)
+    let (waveform, sample_rate) = inference.generate_with_instruct(
+        "This is a normal announcement.",
+        "Vivian",
+        "english",
+        "",  // no instruction
+        0.9,
+        50,
+        2048,
+    )?;
+
+    write_wav_file("neutral.wav", &waveform, sample_rate)?;
+    Ok(())
+}
 ```
 
 ### Voice Cloning (X-vector)

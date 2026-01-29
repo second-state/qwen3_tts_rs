@@ -161,6 +161,48 @@ jobs:
             "The quick brown fox jumps over the lazy dog."
           mv output_voice_clone.wav output_ryan_clone_icl.wav
 
+      - name: Cache 1.7B CustomVoice model weights
+        uses: actions/cache@v4
+        with:
+          path: models/Qwen3-TTS-12Hz-1.7B-CustomVoice
+          key: qwen3-tts-1.7b-customvoice-v1
+
+      - name: Download 1.7B CustomVoice model
+        run: python3 -c "from huggingface_hub import snapshot_download; snapshot_download('Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice', local_dir='models/Qwen3-TTS-12Hz-1.7B-CustomVoice')"
+
+      - name: Generate 1.7B model tokenizer.json
+        run: |
+          python3 -c "
+          from transformers import AutoTokenizer
+          tok = AutoTokenizer.from_pretrained('models/Qwen3-TTS-12Hz-1.7B-CustomVoice', trust_remote_code=True)
+          tok.backend_tokenizer.save('models/Qwen3-TTS-12Hz-1.7B-CustomVoice/tokenizer.json')
+          print('Saved tokenizer.json')
+          "
+
+      - name: Generate urgent voice (1.7B with instruction)
+        env:
+          LIBTORCH_USE_PYTORCH: "1"
+        run: |
+          cargo run --example tts_demo --release -- \
+            models/Qwen3-TTS-12Hz-1.7B-CustomVoice \
+            "Breaking news! There has been a major development in the city center." \
+            Vivian \
+            english \
+            "Speak in an urgent and excited voice"
+          mv output.wav vivian_urgent_1.7b.wav
+
+      - name: Generate happy voice (1.7B with instruction)
+        env:
+          LIBTORCH_USE_PYTORCH: "1"
+        run: |
+          cargo run --example tts_demo --release -- \
+            models/Qwen3-TTS-12Hz-1.7B-CustomVoice \
+            "I am so happy to announce that we have won the championship!" \
+            Vivian \
+            english \
+            "Speak happily and joyfully"
+          mv output.wav vivian_happy_1.7b.wav
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -173,3 +215,5 @@ jobs:
             ryan_reference.wav
             output_ryan_clone.wav
             output_ryan_clone_icl.wav
+            vivian_urgent_1.7b.wav
+            vivian_happy_1.7b.wav
