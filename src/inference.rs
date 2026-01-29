@@ -1042,6 +1042,71 @@ impl TTSInference {
         Ok(encoding.get_ids().to_vec())
     }
 
+    /// Decode codec frames to audio waveform using the vocoder.
+    ///
+    /// This helper method handles the consistent vocoder decoding logic:
+    /// - Determines num_quantizers dynamically from the actual code data
+    /// - Uses fixed codebook_size of 2048 (matches model architecture)
+    /// - Counts and reports out-of-range codes for debugging
+    /// - Returns None if no vocoder is loaded or codes are empty
+    fn decode_codes_to_audio(&self, codes: &[Vec<i64>]) -> Option<Vec<f32>> {
+        if codes.is_empty() {
+            println!("Warning: No codes to decode");
+            return None;
+        }
+
+        let vocoder = self.vocoder.as_ref()?;
+
+        println!("Decoding audio with vocoder...");
+
+        let num_frames = codes.len();
+        let num_quantizers = codes[0].len();
+        let codebook_size = 2048i64;
+
+        // Flatten codes and clamp to valid range, counting out-of-range values
+        let mut codes_flat: Vec<i64> = Vec::with_capacity(num_quantizers * num_frames);
+        let mut out_of_range = 0;
+        for q in 0..num_quantizers {
+            for frame in codes {
+                let code = if q < frame.len() { frame[q] } else { 0 };
+                if code < 0 || code >= codebook_size {
+                    out_of_range += 1;
+                    codes_flat.push(code.clamp(0, codebook_size - 1));
+                } else {
+                    codes_flat.push(code);
+                }
+            }
+        }
+        if out_of_range > 0 {
+            println!(
+                "Warning: {} codes out of range [0, {}), clamped",
+                out_of_range, codebook_size
+            );
+        }
+
+        // Create tensor [1, num_quantizers, num_frames]
+        let codes_tensor = Tensor::from_slice(&codes_flat)
+            .view([num_quantizers as i64, num_frames as i64])
+            .unsqueeze(0)
+            .to_device(self.device);
+
+        println!("Codes tensor shape: {:?}", codes_tensor.size());
+
+        // Decode with vocoder
+        let audio_tensor = vocoder.decode(&codes_tensor);
+        println!("Vocoder output shape: {:?}", audio_tensor.size());
+
+        // Convert tensor to Vec<f32>
+        let audio_len = audio_tensor.numel();
+        let waveform =
+            Vec::<f32>::try_from(audio_tensor.view([audio_len as i64]).to_kind(Kind::Float))
+                .unwrap_or_else(|_| vec![0.0; audio_len]);
+
+        println!("Decoded {} audio samples", waveform.len());
+
+        Some(waveform)
+    }
+
     /// Generate speech from text.
     pub fn generate(&self, text: &str, speaker: &str, language: &str) -> Result<(Vec<f32>, u32)> {
         self.generate_with_params(text, speaker, language, 0.9, 50, 2048)
@@ -1171,60 +1236,13 @@ impl TTSInference {
 
         // Convert codes to audio using vocoder
         let sample_rate = 24000u32;
-        let waveform: Vec<f32>;
-
-        if codes.is_empty() {
+        let waveform = if let Some(audio) = self.decode_codes_to_audio(&codes) {
+            audio
+        } else if codes.is_empty() {
             println!("Warning: No codes generated, returning silence");
-            let num_samples = sample_rate as usize * 2;
-            waveform = vec![0.0; num_samples];
-        } else if let Some(ref vocoder) = self.vocoder {
-            println!("Decoding audio with vocoder...");
-
-            let num_frames = codes.len();
-            let num_quantizers = codes[0].len();
-
-            // Clamp codes to valid codebook range [0, 2047]
-            let codebook_size = 2048i64;
-            let mut codes_flat: Vec<i64> = Vec::with_capacity(num_quantizers * num_frames);
-            let mut out_of_range = 0;
-            for q in 0..num_quantizers {
-                for frame in &codes {
-                    let code = frame[q];
-                    if code < 0 || code >= codebook_size {
-                        out_of_range += 1;
-                        codes_flat.push(code.clamp(0, codebook_size - 1));
-                    } else {
-                        codes_flat.push(code);
-                    }
-                }
-            }
-            if out_of_range > 0 {
-                println!(
-                    "Warning: {} codes out of range [0, {}), clamped",
-                    out_of_range, codebook_size
-                );
-            }
-
-            // Create tensor [num_quantizers, seq_len] then unsqueeze to [1, num_quantizers, seq_len]
-            let codes_tensor = Tensor::from_slice(&codes_flat)
-                .view([num_quantizers as i64, num_frames as i64])
-                .unsqueeze(0)
-                .to_device(self.device);
-
-            println!("Codes tensor shape: {:?}", codes_tensor.size());
-
-            // Decode with vocoder
-            let audio_tensor = vocoder.decode(&codes_tensor);
-            println!("Vocoder output shape: {:?}", audio_tensor.size());
-
-            // Convert tensor to Vec<f32>
-            let audio_len = audio_tensor.numel();
-            waveform =
-                Vec::<f32>::try_from(audio_tensor.view([audio_len as i64]).to_kind(Kind::Float))
-                    .unwrap_or_else(|_| vec![0.0; audio_len]);
-
-            println!("Decoded {} audio samples", waveform.len());
+            vec![0.0; sample_rate as usize * 2]
         } else {
+            // Placeholder synthesis when vocoder not loaded
             println!("Warning: Vocoder not loaded, using placeholder synthesis");
             let samples_per_frame = 200;
             let codebook_size = self.config.talker_config.code_predictor_config.vocab_size as f32;
@@ -1241,8 +1259,8 @@ impl TTSInference {
                     samples.push(sample);
                 }
             }
-            waveform = samples;
-        }
+            samples
+        };
 
         println!(
             "Generated {} samples ({:.2} seconds)",
@@ -1414,39 +1432,9 @@ impl TTSInference {
 
         // Decode with vocoder
         let sample_rate = 24000u32;
-        let waveform = if codes.is_empty() {
-            println!("Warning: No codes generated, returning silence");
-            vec![0.0; sample_rate as usize * 2]
-        } else if let Some(ref vocoder) = self.vocoder {
-            let num_frames = codes.len();
-            let num_quantizers = 16;
-            let codebook_size = self.config.talker_config.code_predictor_config.vocab_size as i64;
-
-            let mut codes_flat = Vec::with_capacity(num_quantizers * num_frames);
-            for q in 0..num_quantizers {
-                for frame_codes in &codes {
-                    let code = if q < frame_codes.len() {
-                        frame_codes[q].clamp(0, codebook_size - 1)
-                    } else {
-                        0
-                    };
-                    codes_flat.push(code);
-                }
-            }
-
-            let codes_tensor = Tensor::from_slice(&codes_flat)
-                .view([num_quantizers as i64, num_frames as i64])
-                .unsqueeze(0)
-                .to_device(self.device);
-
-            let audio_tensor = vocoder.decode(&codes_tensor);
-            let audio_len = audio_tensor.numel();
-            Vec::<f32>::try_from(audio_tensor.view([audio_len as i64]).to_kind(Kind::Float))
-                .unwrap_or_else(|_| vec![0.0; audio_len])
-        } else {
-            println!("Warning: Vocoder not loaded");
-            vec![0.0; sample_rate as usize * 2]
-        };
+        let waveform = self
+            .decode_codes_to_audio(&codes)
+            .unwrap_or_else(|| vec![0.0; sample_rate as usize * 2]);
 
         println!(
             "Generated {} samples ({:.2} seconds)",
@@ -1563,62 +1551,11 @@ impl TTSInference {
         );
         println!("Generated {} code frames", codes.len());
 
-        // Convert codes to audio using vocoder (same as generate_with_params)
+        // Convert codes to audio using vocoder
         let sample_rate = 24000u32;
-        let waveform: Vec<f32>;
-
-        if codes.is_empty() {
-            println!("Warning: No codes generated, returning silence");
-            let num_samples = sample_rate as usize * 2;
-            waveform = vec![0.0; num_samples];
-        } else if let Some(ref vocoder) = self.vocoder {
-            println!("Decoding audio with vocoder...");
-
-            let num_frames = codes.len();
-            let num_quantizers = codes[0].len();
-
-            let codebook_size = 2048i64;
-            let mut codes_flat: Vec<i64> = Vec::with_capacity(num_quantizers * num_frames);
-            let mut out_of_range = 0;
-            for q in 0..num_quantizers {
-                for frame in &codes {
-                    let code = frame[q];
-                    if code < 0 || code >= codebook_size {
-                        out_of_range += 1;
-                        codes_flat.push(code.clamp(0, codebook_size - 1));
-                    } else {
-                        codes_flat.push(code);
-                    }
-                }
-            }
-            if out_of_range > 0 {
-                println!(
-                    "Warning: {} codes out of range [0, {}), clamped",
-                    out_of_range, codebook_size
-                );
-            }
-
-            let codes_tensor = Tensor::from_slice(&codes_flat)
-                .view([num_quantizers as i64, num_frames as i64])
-                .unsqueeze(0)
-                .to_device(self.device);
-
-            println!("Codes tensor shape: {:?}", codes_tensor.size());
-
-            let audio_tensor = vocoder.decode(&codes_tensor);
-            println!("Vocoder output shape: {:?}", audio_tensor.size());
-
-            let audio_len = audio_tensor.numel();
-            waveform =
-                Vec::<f32>::try_from(audio_tensor.view([audio_len as i64]).to_kind(Kind::Float))
-                    .unwrap_or_else(|_| vec![0.0; audio_len]);
-
-            println!("Decoded {} audio samples", waveform.len());
-        } else {
-            println!("Warning: Vocoder not loaded, generating placeholder audio");
-            let num_samples = sample_rate as usize * 2;
-            waveform = vec![0.0; num_samples];
-        }
+        let waveform = self
+            .decode_codes_to_audio(&codes)
+            .unwrap_or_else(|| vec![0.0; sample_rate as usize * 2]);
 
         println!(
             "Generated {} samples ({:.2} seconds)",
@@ -1760,53 +1697,12 @@ impl TTSInference {
         all_codes.extend_from_slice(ref_codes);
         all_codes.extend_from_slice(&generated_codes);
 
-        // Decode with vocoder
+        // Decode with vocoder and trim reference portion
         let sample_rate = 24000u32;
-        let waveform: Vec<f32>;
-
-        if all_codes.is_empty() || gen_len == 0 {
+        let waveform = if gen_len == 0 {
             println!("Warning: No codes generated, returning silence");
-            let num_samples = sample_rate as usize * 2;
-            waveform = vec![0.0; num_samples];
-        } else if let Some(ref vocoder) = self.vocoder {
-            println!("Decoding concatenated audio with vocoder...");
-
-            let num_frames = all_codes.len();
-            let num_quantizers = all_codes[0].len();
-            let codebook_size = 2048i64;
-
-            let mut codes_flat: Vec<i64> = Vec::with_capacity(num_quantizers * num_frames);
-            let mut out_of_range = 0;
-            for q in 0..num_quantizers {
-                for frame in &all_codes {
-                    let code = frame[q];
-                    if code < 0 || code >= codebook_size {
-                        out_of_range += 1;
-                        codes_flat.push(code.clamp(0, codebook_size - 1));
-                    } else {
-                        codes_flat.push(code);
-                    }
-                }
-            }
-            if out_of_range > 0 {
-                println!(
-                    "Warning: {} codes out of range [0, {}), clamped",
-                    out_of_range, codebook_size
-                );
-            }
-
-            let codes_tensor = Tensor::from_slice(&codes_flat)
-                .view([num_quantizers as i64, num_frames as i64])
-                .unsqueeze(0)
-                .to_device(self.device);
-
-            let audio_tensor = vocoder.decode(&codes_tensor);
-
-            let audio_len = audio_tensor.numel();
-            let full_waveform =
-                Vec::<f32>::try_from(audio_tensor.view([audio_len as i64]).to_kind(Kind::Float))
-                    .unwrap_or_else(|_| vec![0.0; audio_len]);
-
+            vec![0.0; sample_rate as usize * 2]
+        } else if let Some(full_waveform) = self.decode_codes_to_audio(&all_codes) {
             // Trim reference portion from output
             // cut = ref_len / total_len * waveform_len
             let cut =
@@ -1816,14 +1712,12 @@ impl TTSInference {
                 cut,
                 full_waveform.len()
             );
-            waveform = full_waveform[cut..].to_vec();
-
-            println!("Final output: {} samples", waveform.len());
+            let trimmed = full_waveform[cut..].to_vec();
+            println!("Final output: {} samples", trimmed.len());
+            trimmed
         } else {
-            println!("Warning: Vocoder not loaded, generating placeholder audio");
-            let num_samples = sample_rate as usize * 2;
-            waveform = vec![0.0; num_samples];
-        }
+            vec![0.0; sample_rate as usize * 2]
+        };
 
         println!(
             "Generated {} samples ({:.2} seconds)",
