@@ -148,12 +148,20 @@ Clone a voice from a reference audio file using the Base model:
 cargo run --example voice_clone_demo --release -- <model_path> <ref_audio> [text] [language] [ref_text]
 ```
 
+**Preparing reference audio:** The reference audio must be a mono 24kHz 16-bit WAV file. Use ffmpeg to convert from other formats:
+
+```bash
+ffmpeg -i input.m4a -ac 1 -ar 24000 -sample_fmt s16 reference.wav
+```
+
+Sample reference audio files are provided in the `reference_audio/` directory.
+
 **X-vector only mode** (no reference text):
 
 ```bash
 cargo run --example voice_clone_demo --release -- \
   models/Qwen3-TTS-12Hz-0.6B-Base \
-  reference.wav \
+  reference_audio/trump.wav \
   "Hello world, this is a voice cloning test." \
   english
 ```
@@ -163,10 +171,10 @@ cargo run --example voice_clone_demo --release -- \
 ```bash
 cargo run --example voice_clone_demo --release -- \
   models/Qwen3-TTS-12Hz-0.6B-Base \
-  reference.wav \
+  reference_audio/trump.wav \
   "Hello world, this is a voice cloning test." \
   english \
-  "This is the transcript of the reference audio."
+  "Angered and appalled millions of Americans across the political spectrum"
 ```
 
 When a reference text transcript is provided as the 5th argument, the demo uses **ICL (In-Context Learning) mode**, which encodes the reference audio into codec tokens and conditions generation on both the speaker embedding and the reference audio/text. This typically produces higher fidelity voice cloning compared to x-vector only mode.

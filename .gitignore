@@ -13,9 +13,10 @@ target
 # Contains mutation testing data
 **/mutants.out*/
 
-# Test WAV files
+# Test WAV files (but allow reference_audio samples)
 *.wav
 *.WAV
+!reference_audio/*.wav
 
 # Mac
 .DS_Store
