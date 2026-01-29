@@ -100,7 +100,7 @@ cargo build --release
 Generate speech from text:
 
 ```bash
-cargo run --example tts_demo --release -- <model_path> [text] [speaker] [language]
+cargo run --example tts_demo --release -- <model_path> [text] [speaker] [language] [instruction]
 ```
 
 Example:
@@ -114,6 +114,41 @@ cargo run --example tts_demo --release -- \
 ```
 
 This generates an `output.wav` file with 24kHz audio.
+
+### Instruction-Controlled Voice (1.7B CustomVoice)
+
+The 1.7B CustomVoice model supports instruction control to modulate voice characteristics like emotion, speaking style, and pace. First download the model:
+
+```bash
+huggingface-cli download Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice --local-dir models/Qwen3-TTS-12Hz-1.7B-CustomVoice
+```
+
+Generate the tokenizer:
+
+```bash
+python3 -c "
+from transformers import AutoTokenizer
+tok = AutoTokenizer.from_pretrained('models/Qwen3-TTS-12Hz-1.7B-CustomVoice', trust_remote_code=True)
+tok.backend_tokenizer.save('models/Qwen3-TTS-12Hz-1.7B-CustomVoice/tokenizer.json')
+"
+```
+
+Then run with an instruction:
+
+```bash
+cargo run --example tts_demo --release -- \
+  models/Qwen3-TTS-12Hz-1.7B-CustomVoice \
+  "Breaking news! There has been a major development." \
+  Vivian \
+  english \
+  "Speak in an urgent and excited voice"
+```
+
+Other instruction examples:
+- `"Speak happily and joyfully"`
+- `"Speak slowly and calmly"`
+- `"Speak in a whisper"`
+- `"Speak with a sad tone"`
 
 ### Voice Clone Demo
 
@@ -212,6 +247,51 @@ let (waveform, sample_rate) = inference.generate_with_params(
     30,    // top_k
     4096,  // max_codes
 )?;
+```
+
+### Instruction-Controlled Voice (1.7B CustomVoice)
+
+The 1.7B CustomVoice model supports instruction control to modulate voice characteristics:
+
+```rust
+use qwen3_tts::audio::write_wav_file;
+use qwen3_tts::inference::TTSInference;
+use std::path::Path;
+use tch::Device;
+
+fn main() -> anyhow::Result<()> {
+    let inference = TTSInference::new(
+        Path::new("models/Qwen3-TTS-12Hz-1.7B-CustomVoice"),
+        Device::Cpu,
+    )?;
+
+    // Generate with instruction control
+    let (waveform, sample_rate) = inference.generate_with_instruct(
+        "Breaking news! There has been a major development.",
+        "Vivian",   // speaker name
+        "english",  // language
+        Some("Speak in an urgent and excited voice"),  // instruction
+        0.9,        // temperature
+        50,         // top_k
+        2048,       // max_codes
+    )?;
+
+    write_wav_file("urgent_news.wav", &waveform, sample_rate)?;
+
+    // Without instruction (pass None for neutral voice)
+    let (waveform, sample_rate) = inference.generate_with_instruct(
+        "This is a normal announcement.",
+        "Vivian",
+        "english",
+        None,  // no instruction
+        0.9,
+        50,
+        2048,
+    )?;
+
+    write_wav_file("neutral.wav", &waveform, sample_rate)?;
+    Ok(())
+}
 ```
 
 ### Voice Cloning (X-vector)
