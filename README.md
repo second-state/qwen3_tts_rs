@@ -58,10 +58,16 @@ export LD_LIBRARY_PATH=$(pwd)/libtorch/lib:$LD_LIBRARY_PATH
 
 ### Download the model
 
-Download the Qwen3-TTS model weights. For speech synthesis with named speakers (CustomVoice):
+Download the Qwen3-TTS model weights. For speech synthesis with named speakers (CustomVoice 0.6B):
 
 ```bash
 huggingface-cli download Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice --local-dir models/Qwen3-TTS-12Hz-0.6B-CustomVoice
+```
+
+For instruction-controlled voice synthesis (CustomVoice 1.7B, supports emotion/style control):
+
+```bash
+huggingface-cli download Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice --local-dir models/Qwen3-TTS-12Hz-1.7B-CustomVoice
 ```
 
 For voice cloning from reference audio (Base):
@@ -77,7 +83,7 @@ The Rust `tokenizers` crate requires a `tokenizer.json` file with the full token
 ```bash
 python3 -c "
 from transformers import AutoTokenizer
-for model in ['Qwen3-TTS-12Hz-0.6B-CustomVoice', 'Qwen3-TTS-12Hz-0.6B-Base']:
+for model in ['Qwen3-TTS-12Hz-0.6B-CustomVoice', 'Qwen3-TTS-12Hz-0.6B-Base', 'Qwen3-TTS-12Hz-1.7B-CustomVoice']:
     path = f'models/{model}'
     tok = AutoTokenizer.from_pretrained(path, trust_remote_code=True)
     tok.backend_tokenizer.save(f'{path}/tokenizer.json')
@@ -117,23 +123,7 @@ This generates an `output.wav` file with 24kHz audio.
 
 ### Instruction-Controlled Voice (1.7B CustomVoice)
 
-The 1.7B CustomVoice model supports instruction control to modulate voice characteristics like emotion, speaking style, and pace. First download the model:
-
-```bash
-huggingface-cli download Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice --local-dir models/Qwen3-TTS-12Hz-1.7B-CustomVoice
-```
-
-Generate the tokenizer:
-
-```bash
-python3 -c "
-from transformers import AutoTokenizer
-tok = AutoTokenizer.from_pretrained('models/Qwen3-TTS-12Hz-1.7B-CustomVoice', trust_remote_code=True)
-tok.backend_tokenizer.save('models/Qwen3-TTS-12Hz-1.7B-CustomVoice/tokenizer.json')
-"
-```
-
-Then run with an instruction:
+The 1.7B CustomVoice model supports instruction control to modulate voice characteristics like emotion, speaking style, and pace:
 
 ```bash
 cargo run --example tts_demo --release -- \
