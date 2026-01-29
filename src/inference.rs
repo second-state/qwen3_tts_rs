@@ -25,7 +25,7 @@ use tokenizers::Tokenizer;
 /// on previously generated codes.
 pub struct CodePredictor {
     /// Embeddings for codes 1-15 (indexed 0-14)
-    code_embeddings: Vec<Tensor>,
+    pub code_embeddings: Vec<Tensor>,
     /// Transformer layers (5 layers)
     layers: Vec<TransformerLayer>,
     /// Final layer norm
@@ -34,6 +34,9 @@ pub struct CodePredictor {
     lm_heads: Vec<Linear>,
     /// Rotary position embedding
     rotary_emb: RotaryEmbedding,
+    /// Optional projection from main model hidden size to code predictor hidden size
+    /// Present in 1.7B+ models where talker hidden_size > code_predictor hidden_size
+    small_to_mtp_projection: Option<Linear>,
     /// Hidden size
     _hidden_size: i64,
     /// Device
@@ -116,6 +119,24 @@ impl CodePredictor {
         }
         println!("  Loaded {} code_predictor LM heads", lm_heads.len());
 
+        // Load optional small_to_mtp_projection (present in 1.7B+ models)
+        let small_to_mtp_projection =
+            if let Some(proj_weight) = weights.get("talker.code_predictor.small_to_mtp_projection.weight") {
+                let proj_bias = weights.get("talker.code_predictor.small_to_mtp_projection.bias");
+                let proj = if let Some(bias) = proj_bias {
+                    Linear::from_weights_with_bias(
+                        proj_weight.to_device(device).to_kind(Kind::Float),
+                        bias.to_device(device).to_kind(Kind::Float),
+                    )
+                } else {
+                    Linear::from_weights(proj_weight.to_device(device).to_kind(Kind::Float))
+                };
+                println!("  Loaded small_to_mtp_projection");
+                Some(proj)
+            } else {
+                None
+            };
+
         // Create rotary embedding
         let rotary_emb = RotaryEmbedding::new(
             head_dim,
@@ -130,6 +151,7 @@ impl CodePredictor {
             norm,
             lm_heads,
             rotary_emb,
+            small_to_mtp_projection,
             _hidden_size: hidden_size,
             device,
         })
@@ -138,8 +160,8 @@ impl CodePredictor {
     /// Generate codes 1-15 autoregressively.
     ///
     /// # Arguments
-    /// * `main_hidden` - Hidden state from main model at last position [1, 1, hidden_size]
-    /// * `code_0_embedding` - Embedding of code 0 from main codec_embedding [1, 1, hidden_size]
+    /// * `main_hidden` - Hidden state from main model at last position [1, 1, main_hidden_size]
+    /// * `code_0_embedding` - Embedding of code 0 from main codec_embedding [1, 1, main_hidden_size]
     /// * `temperature` - Sampling temperature (0 = greedy)
     /// * `top_k` - Top-k sampling parameter
     pub fn generate_codes(
@@ -152,6 +174,7 @@ impl CodePredictor {
         let mut codes = Vec::new();
 
         // Start with [main_hidden, code_0_embedding] as input
+        // Note: For 1.7B+ models, these are at main_hidden_size (2048), not code_predictor hidden_size (1024)
         let mut sequence = Tensor::cat(
             &[
                 main_hidden.shallow_clone(),
@@ -169,8 +192,15 @@ impl CodePredictor {
             let causal_mask = mask.masked_fill(&upper, f64::NEG_INFINITY);
             let causal_mask = causal_mask.view([1, 1, seq_len, seq_len]);
 
+            // Apply projection if present (1.7B+ models: project from 2048 to 1024)
+            let projected_sequence = if let Some(ref proj) = self.small_to_mtp_projection {
+                proj.forward(&sequence)
+            } else {
+                sequence.shallow_clone()
+            };
+
             // Run through transformer layers
-            let mut hidden = sequence.shallow_clone();
+            let mut hidden = projected_sequence;
             for layer in &self.layers {
                 hidden = layer.forward(&hidden, &self.rotary_emb, Some(&causal_mask));
             }

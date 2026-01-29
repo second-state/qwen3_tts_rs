@@ -50,9 +50,10 @@ impl RMSNorm {
     }
 }
 
-/// Linear layer without bias.
+/// Linear layer with optional bias.
 pub struct Linear {
     weight: Tensor,
+    bias: Option<Tensor>,
 }
 
 impl Linear {
@@ -65,20 +66,34 @@ impl Linear {
             &[out_features, in_features],
             nn::Init::Uniform { lo: -std, up: std },
         );
-        Self { weight }
+        Self { weight, bias: None }
     }
 
-    /// Load Linear from pre-loaded weight tensor.
+    /// Load Linear from pre-loaded weight tensor (no bias).
     pub fn from_weights(weight: Tensor) -> Self {
         // Convert to float32 for stable computation
         Self {
             weight: weight.to_kind(Kind::Float),
+            bias: None,
         }
     }
 
-    /// Apply linear transformation: x @ W^T.
+    /// Load Linear from pre-loaded weight and bias tensors.
+    pub fn from_weights_with_bias(weight: Tensor, bias: Tensor) -> Self {
+        Self {
+            weight: weight.to_kind(Kind::Float),
+            bias: Some(bias.to_kind(Kind::Float)),
+        }
+    }
+
+    /// Apply linear transformation: x @ W^T + bias.
     pub fn forward(&self, x: &Tensor) -> Tensor {
-        x.matmul(&self.weight.tr())
+        let out = x.matmul(&self.weight.tr());
+        if let Some(ref bias) = self.bias {
+            &out + bias
+        } else {
+            out
+        }
     }
 }
 
