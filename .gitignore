@@ -16,3 +16,9 @@ target
 # Test WAV files
 *.wav
 *.WAV
+
+# Mac
+.DS_Store
+
+# models for local testing
+models/
