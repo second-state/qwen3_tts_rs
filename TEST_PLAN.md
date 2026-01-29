@@ -20,11 +20,13 @@ huggingface-cli download Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice \
   --local-dir models/Qwen3-TTS-12Hz-0.6B-CustomVoice
 huggingface-cli download Qwen/Qwen3-TTS-12Hz-0.6B-Base \
   --local-dir models/Qwen3-TTS-12Hz-0.6B-Base
+huggingface-cli download Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice \
+  --local-dir models/Qwen3-TTS-12Hz-1.7B-CustomVoice
 
 # Generate tokenizer.json for each model
 python3 -c "
 from transformers import AutoTokenizer
-for model in ['Qwen3-TTS-12Hz-0.6B-CustomVoice', 'Qwen3-TTS-12Hz-0.6B-Base']:
+for model in ['Qwen3-TTS-12Hz-0.6B-CustomVoice', 'Qwen3-TTS-12Hz-0.6B-Base', 'Qwen3-TTS-12Hz-1.7B-CustomVoice']:
     path = f'models/{model}'
     tok = AutoTokenizer.from_pretrained(path, trust_remote_code=True)
     tok.backend_tokenizer.save(f'{path}/tokenizer.json')
@@ -281,6 +283,50 @@ mv output_voice_clone.wav output_ryan_clone_icl.wav
 - Reported duration is > 0 seconds
 - Reference portion is trimmed (printed "Trimming reference portion" message)
 
+### 3.7 Urgent voice generation (1.7B CustomVoice with instruction)
+
+Generate speech with an urgent/excited voice using the 1.7B model's instruction control feature.
+
+```bash
+LIBTORCH_USE_PYTORCH=1 cargo run --example tts_demo --release -- \
+  models/Qwen3-TTS-12Hz-1.7B-CustomVoice \
+  "Breaking news! There has been a major development in the city center." \
+  Vivian \
+  english \
+  "Speak in an urgent and excited voice"
+
+mv output.wav vivian_urgent_1.7b.wav
+```
+
+**Pass criteria:**
+- Exits 0
+- Produces `output.wav` (renamed to `vivian_urgent_1.7b.wav`)
+- Output is a valid WAV file at 24kHz
+- Reported duration is > 0 seconds
+- Voice exhibits urgent/excited characteristics (subjective, but noticeably different from neutral)
+
+### 3.8 Happy voice generation (1.7B CustomVoice with instruction)
+
+Generate speech with a happy/joyful voice using the 1.7B model's instruction control feature.
+
+```bash
+LIBTORCH_USE_PYTORCH=1 cargo run --example tts_demo --release -- \
+  models/Qwen3-TTS-12Hz-1.7B-CustomVoice \
+  "I am so happy to announce that we have won the championship!" \
+  Vivian \
+  english \
+  "Speak happily and joyfully"
+
+mv output.wav vivian_happy_1.7b.wav
+```
+
+**Pass criteria:**
+- Exits 0
+- Produces `output.wav` (renamed to `vivian_happy_1.7b.wav`)
+- Output is a valid WAV file at 24kHz
+- Reported duration is > 0 seconds
+- Voice exhibits happy/joyful characteristics (subjective, but noticeably different from neutral)
+
 ---
 
 ## 4. Platform Matrix
@@ -310,6 +356,8 @@ The CI uploads the following artifacts per platform:
 | `ryan_reference.wav` | Ryan reference (3.4) |
 | `output_ryan_clone.wav` | X-vector voice clone (3.5) |
 | `output_ryan_clone_icl.wav` | ICL voice clone (3.6) |
+| `vivian_urgent_1.7b.wav` | Urgent voice (3.7) |
+| `vivian_happy_1.7b.wav` | Happy voice (3.8) |
 
-**Pass criteria:** All 7 artifacts are present in the uploaded archive and are non-empty files.
+**Pass criteria:** All 9 artifacts are present in the uploaded archive and are non-empty files.
 
