@@ -1,13 +1,17 @@
 // Copyright 2026 Claude Code on behalf of Michael Yuan.
 // SPDX-License-Identifier: Apache-2.0
 
-//! Neural network layer implementations for Qwen3 TTS using tch.
+//! Neural network layer implementations for Qwen3 TTS.
 //!
 //! This module implements the core neural network layers used by the
 //! TTS model, including attention, MLP, normalization, and vocoder layers.
 
 use std::collections::HashMap;
-use tch::{nn, Device, Kind, Tensor};
+use crate::tensor::{Tensor, Device, DType};
+#[cfg(feature = "tch-backend")]
+use tch::nn;
+#[cfg(feature = "mlx")]
+use crate::backend::mlx;
 
 /// RMS Normalization layer.
 pub struct RMSNorm {
@@ -17,36 +21,53 @@ pub struct RMSNorm {
 
 impl RMSNorm {
     /// Create a new RMSNorm layer.
+    #[cfg(feature = "tch-backend")]
     pub fn new(vs: &nn::Path, hidden_size: i64, eps: f64) -> Self {
         let weight = vs.var("weight", &[hidden_size], nn::Init::Const(1.0));
-        Self { weight, eps }
+        Self {
+            weight: Tensor::from_tch(weight),
+            eps,
+        }
     }
 
     /// Load RMSNorm from pre-loaded weights.
     pub fn from_weights(weight: Tensor, eps: f64) -> Self {
         // Convert to float32 for stable computation
         Self {
-            weight: weight.to_kind(Kind::Float),
+            weight: weight.to_dtype(DType::Float32),
             eps,
         }
     }
 
     /// Apply RMS normalization.
     pub fn forward(&self, x: &Tensor) -> Tensor {
-        let x_f32 = x.to_kind(Kind::Float);
+        // Use MLX fused RMS norm kernel for better performance on Apple Silicon
+        #[cfg(feature = "mlx")]
+        {
+            return Tensor::from_mlx(mlx::ops::fast_rms_norm(
+                x.as_mlx(),
+                self.weight.as_mlx(),
+                self.eps as f32,
+            ))
+            .to_dtype(x.kind());
+        }
+        #[cfg(not(feature = "mlx"))]
+        {
+            let x_f32 = x.to_dtype(DType::Float32);
 
-        // Calculate RMS: sqrt(mean(x^2) + eps)
-        let variance = x_f32.pow_tensor_scalar(2).mean_dim(-1, true, Kind::Float);
-        let rms = (variance + self.eps).sqrt();
+            // Calculate RMS: sqrt(mean(x^2) + eps)
+            let variance = x_f32.pow_scalar(2.0).mean_dim(&[-1], true);
+            let rms = (variance + self.eps).sqrt();
 
-        // Clamp RMS to avoid division by zero
-        let rms = rms.clamp_min(1e-8);
+            // Clamp RMS to avoid division by zero
+            let rms = rms.clamp_min(1e-8);
 
-        // Normalize and scale
-        let normalized = &x_f32 / &rms;
-        let output = normalized * &self.weight;
+            // Normalize and scale
+            let normalized = &x_f32 / &rms;
+            let output = normalized * &self.weight;
 
-        output.to_kind(x.kind())
+            output.to_dtype(x.kind())
+        }
     }
 }
 
@@ -58,6 +79,7 @@ pub struct Linear {
 
 impl Linear {
     /// Create a new Linear layer with Xavier initialization.
+    #[cfg(feature = "tch-backend")]
     pub fn new(vs: &nn::Path, in_features: i64, out_features: i64) -> Self {
         // Use Xavier/Glorot uniform initialization as a reasonable default
         let std = (2.0 / (in_features + out_features) as f64).sqrt();
@@ -66,14 +88,17 @@ impl Linear {
             &[out_features, in_features],
             nn::Init::Uniform { lo: -std, up: std },
         );
-        Self { weight, bias: None }
+        Self {
+            weight: Tensor::from_tch(weight),
+            bias: None,
+        }
     }
 
     /// Load Linear from pre-loaded weight tensor (no bias).
     pub fn from_weights(weight: Tensor) -> Self {
         // Convert to float32 for stable computation
         Self {
-            weight: weight.to_kind(Kind::Float),
+            weight: weight.to_dtype(DType::Float32),
             bias: None,
         }
     }
@@ -81,8 +106,8 @@ impl Linear {
     /// Load Linear from pre-loaded weight and bias tensors.
     pub fn from_weights_with_bias(weight: Tensor, bias: Tensor) -> Self {
         Self {
-            weight: weight.to_kind(Kind::Float),
-            bias: Some(bias.to_kind(Kind::Float)),
+            weight: weight.to_dtype(DType::Float32),
+            bias: Some(bias.to_dtype(DType::Float32)),
         }
     }
 
@@ -102,27 +127,28 @@ pub struct RotaryEmbedding {
     cos_cache: Tensor,
     sin_cache: Tensor,
     dim: i64,
+    theta: f64,
 }
 
 impl RotaryEmbedding {
     /// Create new rotary embeddings with the given dimension and max sequence length.
-    pub fn new(dim: i64, max_seq_len: i64, theta: f64, device: tch::Device) -> Self {
+    pub fn new(dim: i64, max_seq_len: i64, theta: f64, device: Device) -> Self {
         let half_dim = dim / 2;
 
         // Create inverse frequencies
         let inv_freq: Vec<f32> = (0..half_dim)
             .map(|i| 1.0 / (theta as f32).powf((2 * i) as f32 / dim as f32))
             .collect();
-        let inv_freq = Tensor::from_slice(&inv_freq).to_device(device);
+        let inv_freq = Tensor::from_slice_f32(&inv_freq).to_device(device);
 
         // Create position indices
         let positions: Vec<f32> = (0..max_seq_len).map(|i| i as f32).collect();
-        let positions = Tensor::from_slice(&positions)
-            .view([max_seq_len, 1])
+        let positions = Tensor::from_slice_f32(&positions)
+            .view(&[max_seq_len, 1])
             .to_device(device);
 
         // Compute frequencies: positions * inv_freq (outer product)
-        let freqs = positions.matmul(&inv_freq.view([1, half_dim]));
+        let freqs = positions.matmul(&inv_freq.view(&[1, half_dim]));
 
         // Compute cos and sin caches
         let cos_cache = freqs.cos();
@@ -132,20 +158,54 @@ impl RotaryEmbedding {
             cos_cache,
             sin_cache,
             dim,
+            theta,
         }
     }
 
     /// Apply rotary embedding to query and key tensors.
     pub fn forward(&self, q: &Tensor, k: &Tensor, seq_len: i64) -> (Tensor, Tensor) {
-        let cos = self.cos_cache.narrow(0, 0, seq_len);
-        let sin = self.sin_cache.narrow(0, 0, seq_len);
+        // Use MLX fused RoPE kernel for better performance on Apple Silicon
+        #[cfg(feature = "mlx")]
+        {
+            // fast_rope expects [batch, seq, heads, head_dim]
+            // Our inputs are [batch, heads, seq, head_dim]
+            let q_t = q.transpose(1, 2);
+            let k_t = k.transpose(1, 2);
 
-        let q_embed = self.apply_rope(q, &cos, &sin);
-        let k_embed = self.apply_rope(k, &cos, &sin);
+            let base = mlx::array::MlxArray::scalar_f32(self.theta as f32);
 
-        (q_embed, k_embed)
+            let q_rope = Tensor::from_mlx(mlx::ops::fast_rope(
+                q_t.as_mlx(),
+                self.dim as i32,
+                false, // GPT-NeoX style (not traditional)
+                Some(&base),
+                1.0, // scale
+                0,   // offset
+            ));
+            let k_rope = Tensor::from_mlx(mlx::ops::fast_rope(
+                k_t.as_mlx(),
+                self.dim as i32,
+                false,
+                Some(&base),
+                1.0,
+                0,
+            ));
+
+            return (q_rope.transpose(1, 2), k_rope.transpose(1, 2));
+        }
+        #[cfg(not(feature = "mlx"))]
+        {
+            let cos = self.cos_cache.narrow(0, 0, seq_len);
+            let sin = self.sin_cache.narrow(0, 0, seq_len);
+
+            let q_embed = self.apply_rope(q, &cos, &sin);
+            let k_embed = self.apply_rope(k, &cos, &sin);
+
+            (q_embed, k_embed)
+        }
     }
 
+    #[cfg(not(feature = "mlx"))]
     fn apply_rope(&self, x: &Tensor, cos: &Tensor, sin: &Tensor) -> Tensor {
         let half_dim = self.dim / 2;
 
@@ -158,8 +218,8 @@ impl RotaryEmbedding {
         let x2 = x.narrow(-1, half_dim, half_dim); // [batch, heads, seq, half_dim]
 
         // Reshape cos/sin for broadcasting: [seq, half_dim] -> [1, 1, seq, half_dim]
-        let cos = cos.view([1, 1, -1, half_dim]);
-        let sin = sin.view([1, 1, -1, half_dim]);
+        let cos = cos.view(&[1, 1, -1, half_dim]);
+        let sin = sin.view(&[1, 1, -1, half_dim]);
 
         // Apply rotation to each half:
         // out1 = x1 * cos - x2 * sin
@@ -187,6 +247,7 @@ pub struct Attention {
 
 impl Attention {
     /// Create a new grouped-query attention module.
+    #[cfg(feature = "tch-backend")]
     pub fn new(
         vs: &nn::Path,
         hidden_size: i64,
@@ -220,27 +281,27 @@ impl Attention {
         let q_proj = weights
             .get(&format!("{}.q_proj.weight", prefix))?
             .to_device(device)
-            .to_kind(Kind::Float);
+            .to_dtype(DType::Float32);
         let k_proj = weights
             .get(&format!("{}.k_proj.weight", prefix))?
             .to_device(device)
-            .to_kind(Kind::Float);
+            .to_dtype(DType::Float32);
         let v_proj = weights
             .get(&format!("{}.v_proj.weight", prefix))?
             .to_device(device)
-            .to_kind(Kind::Float);
+            .to_dtype(DType::Float32);
         let o_proj = weights
             .get(&format!("{}.o_proj.weight", prefix))?
             .to_device(device)
-            .to_kind(Kind::Float);
+            .to_dtype(DType::Float32);
 
         // Load Q/K norm if present
         let q_norm = weights
             .get(&format!("{}.q_norm.weight", prefix))
-            .map(|t| t.to_device(device).to_kind(Kind::Float));
+            .map(|t| t.to_device(device).to_dtype(DType::Float32));
         let k_norm = weights
             .get(&format!("{}.k_norm.weight", prefix))
-            .map(|t| t.to_device(device).to_kind(Kind::Float));
+            .map(|t| t.to_device(device).to_dtype(DType::Float32));
 
         Some(Self {
             q_proj: Linear::from_weights(q_proj),
@@ -273,27 +334,27 @@ impl Attention {
 
         // Reshape to (batch, heads, seq, head_dim)
         let query = query
-            .view([batch_size, seq_len, self.num_heads, self.head_dim])
+            .view(&[batch_size, seq_len, self.num_heads, self.head_dim])
             .transpose(1, 2);
         let key = key
-            .view([batch_size, seq_len, self.num_kv_heads, self.head_dim])
+            .view(&[batch_size, seq_len, self.num_kv_heads, self.head_dim])
             .transpose(1, 2);
         let value = value
-            .view([batch_size, seq_len, self.num_kv_heads, self.head_dim])
+            .view(&[batch_size, seq_len, self.num_kv_heads, self.head_dim])
             .transpose(1, 2);
 
         // Apply Q/K normalization if present (RMS norm per head)
         // Qwen3 QK norm weights have shape [num_heads, head_dim] and need to be reshaped
         let query = if let Some(ref q_norm) = self.q_norm {
             let eps = 1e-6;
-            let variance = query.pow_tensor_scalar(2).mean_dim(-1, true, Kind::Float);
+            let variance = query.pow_scalar(2.0).mean_dim(&[-1], true);
             let rms = (variance + eps).sqrt().clamp_min(1e-8);
             let normalized = query / rms;
             // q_norm is [num_heads * head_dim], reshape to [1, num_heads, 1, head_dim] for broadcasting
             let q_norm_shape = q_norm.size();
             if q_norm_shape.len() == 1 && q_norm_shape[0] == self.num_heads * self.head_dim {
                 // Reshape from [num_heads * head_dim] to [1, num_heads, 1, head_dim]
-                let q_norm_reshaped = q_norm.view([1, self.num_heads, 1, self.head_dim]);
+                let q_norm_reshaped = q_norm.view(&[1, self.num_heads, 1, self.head_dim]);
                 normalized * q_norm_reshaped
             } else if q_norm_shape.len() == 1 && q_norm_shape[0] == self.head_dim {
                 // Shape is [head_dim], broadcast directly
@@ -308,14 +369,14 @@ impl Attention {
         };
         let key = if let Some(ref k_norm) = self.k_norm {
             let eps = 1e-6;
-            let variance = key.pow_tensor_scalar(2).mean_dim(-1, true, Kind::Float);
+            let variance = key.pow_scalar(2.0).mean_dim(&[-1], true);
             let rms = (variance + eps).sqrt().clamp_min(1e-8);
             let normalized = key / rms;
             // k_norm might be [num_kv_heads * head_dim] for GQA
             let k_norm_shape = k_norm.size();
             if k_norm_shape.len() == 1 && k_norm_shape[0] == self.num_kv_heads * self.head_dim {
                 // Reshape from [num_kv_heads * head_dim] to [1, num_kv_heads, 1, head_dim]
-                let k_norm_reshaped = k_norm.view([1, self.num_kv_heads, 1, self.head_dim]);
+                let k_norm_reshaped = k_norm.view(&[1, self.num_kv_heads, 1, self.head_dim]);
                 normalized * k_norm_reshaped
             } else if k_norm_shape.len() == 1 && k_norm_shape[0] == self.head_dim {
                 // Shape is [head_dim], broadcast directly
@@ -338,7 +399,7 @@ impl Attention {
             let key = key
                 .unsqueeze(2)
                 .expand(
-                    [
+                    &[
                         batch_size,
                         self.num_kv_heads,
                         repeat_factor,
@@ -347,11 +408,11 @@ impl Attention {
                     ],
                     false,
                 )
-                .reshape([batch_size, self.num_heads, seq_len, self.head_dim]);
+                .reshape(&[batch_size, self.num_heads, seq_len, self.head_dim]);
             let value = value
                 .unsqueeze(2)
                 .expand(
-                    [
+                    &[
                         batch_size,
                         self.num_kv_heads,
                         repeat_factor,
@@ -360,34 +421,49 @@ impl Attention {
                     ],
                     false,
                 )
-                .reshape([batch_size, self.num_heads, seq_len, self.head_dim]);
+                .reshape(&[batch_size, self.num_heads, seq_len, self.head_dim]);
             (key, value)
         } else {
             (key, value)
         };
 
-        // Compute attention scores
-        let scale = (self.head_dim as f64).sqrt();
-        let attn_weights = query.matmul(&key.transpose(-2, -1)) / scale;
-
-        // Clamp attention weights to prevent overflow in softmax
-        let attn_weights = attn_weights.clamp(-100.0, 100.0);
-
-        // Apply attention mask if provided
-        let attn_weights = if let Some(mask) = attention_mask {
-            attn_weights + mask
-        } else {
-            attn_weights
+        // Compute attention
+        #[cfg(feature = "mlx")]
+        let attn_output = {
+            // Use MLX fused scaled dot-product attention kernel
+            let scale = 1.0 / (self.head_dim as f64).sqrt();
+            Tensor::from_mlx(mlx::ops::fast_scaled_dot_product_attention(
+                query.as_mlx(),
+                key.as_mlx(),
+                value.as_mlx(),
+                scale as f32,
+                attention_mask.map(|m| m.as_mlx()),
+            ))
         };
+        #[cfg(not(feature = "mlx"))]
+        let attn_output = {
+            let scale = (self.head_dim as f64).sqrt();
+            let attn_weights = query.matmul(&key.transpose(-2, -1)) / scale;
 
-        // Softmax with numerical stability
-        let attn_weights = attn_weights.softmax(-1, Kind::Float);
+            // Clamp attention weights to prevent overflow in softmax
+            let attn_weights = attn_weights.clamp(-100.0, 100.0);
 
-        // Apply attention to values
-        let attn_output = attn_weights.matmul(&value);
+            // Apply attention mask if provided
+            let attn_weights = if let Some(mask) = attention_mask {
+                attn_weights + mask
+            } else {
+                attn_weights
+            };
+
+            // Softmax with numerical stability
+            let attn_weights = attn_weights.softmax(-1);
+
+            // Apply attention to values
+            attn_weights.matmul(&value)
+        };
 
         // Reshape back: (batch, heads, seq, head_dim) -> (batch, seq, hidden)
-        let attn_output = attn_output.transpose(1, 2).contiguous().view([
+        let attn_output = attn_output.transpose(1, 2).contiguous().view(&[
             batch_size,
             seq_len,
             self.num_heads * self.head_dim,
@@ -398,14 +474,17 @@ impl Attention {
     }
 
     /// Forward with debug output
+    #[cfg(feature = "tch-backend")]
     pub fn forward_debug(
         &self,
         hidden_states: &Tensor,
         rotary_emb: &RotaryEmbedding,
         attention_mask: Option<&Tensor>,
     ) -> Tensor {
+        use tch::Kind;
+
         let check_nan = |name: &str, t: &Tensor| {
-            let mean: f64 = t.mean(Kind::Float).try_into().unwrap_or(f64::NAN);
+            let mean: f64 = t.as_tch().mean(Kind::Float).try_into().unwrap_or(f64::NAN);
             println!(
                 "      attn {}: mean={:.6} nan={}",
                 name,
@@ -428,19 +507,19 @@ impl Attention {
 
         // Reshape to (batch, heads, seq, head_dim)
         let query = query
-            .view([batch_size, seq_len, self.num_heads, self.head_dim])
+            .view(&[batch_size, seq_len, self.num_heads, self.head_dim])
             .transpose(1, 2);
         let key = key
-            .view([batch_size, seq_len, self.num_kv_heads, self.head_dim])
+            .view(&[batch_size, seq_len, self.num_kv_heads, self.head_dim])
             .transpose(1, 2);
         let value = value
-            .view([batch_size, seq_len, self.num_kv_heads, self.head_dim])
+            .view(&[batch_size, seq_len, self.num_kv_heads, self.head_dim])
             .transpose(1, 2);
 
         // Apply Q/K normalization if present
         let query = if let Some(ref q_norm) = self.q_norm {
             let eps = 1e-6;
-            let variance = query.pow_tensor_scalar(2).mean_dim(-1, true, Kind::Float);
+            let variance = query.pow_scalar(2.0).mean_dim(&[-1], true);
             let rms = (variance + eps).sqrt().clamp_min(1e-8);
             let normalized = &query / &rms;
             check_nan("q_normalized", &normalized);
@@ -457,7 +536,7 @@ impl Attention {
         };
         let key = if let Some(ref k_norm) = self.k_norm {
             let eps = 1e-6;
-            let variance = key.pow_tensor_scalar(2).mean_dim(-1, true, Kind::Float);
+            let variance = key.pow_scalar(2.0).mean_dim(&[-1], true);
             let rms = (variance + eps).sqrt().clamp_min(1e-8);
             let normalized = &key / &rms;
             let k_norm_shape = k_norm.size();
@@ -482,7 +561,7 @@ impl Attention {
             let key = key
                 .unsqueeze(2)
                 .expand(
-                    [
+                    &[
                         batch_size,
                         self.num_kv_heads,
                         repeat_factor,
@@ -491,11 +570,11 @@ impl Attention {
                     ],
                     false,
                 )
-                .reshape([batch_size, self.num_heads, seq_len, self.head_dim]);
+                .reshape(&[batch_size, self.num_heads, seq_len, self.head_dim]);
             let value = value
                 .unsqueeze(2)
                 .expand(
-                    [
+                    &[
                         batch_size,
                         self.num_kv_heads,
                         repeat_factor,
@@ -504,7 +583,7 @@ impl Attention {
                     ],
                     false,
                 )
-                .reshape([batch_size, self.num_heads, seq_len, self.head_dim]);
+                .reshape(&[batch_size, self.num_heads, seq_len, self.head_dim]);
             (key, value)
         } else {
             (key, value)
@@ -524,7 +603,7 @@ impl Attention {
         check_nan("attn_masked", &attn_weights);
 
         // Softmax
-        let attn_weights = attn_weights.softmax(-1, Kind::Float);
+        let attn_weights = attn_weights.softmax(-1);
         check_nan("attn_softmax", &attn_weights);
 
         // Apply attention to values
@@ -532,7 +611,7 @@ impl Attention {
         check_nan("attn_output", &attn_output);
 
         // Reshape back
-        let attn_output = attn_output.transpose(1, 2).contiguous().view([
+        let attn_output = attn_output.transpose(1, 2).contiguous().view(&[
             batch_size,
             seq_len,
             self.num_heads * self.head_dim,
@@ -554,6 +633,7 @@ pub struct MLP {
 
 impl MLP {
     /// Create a new SwiGLU MLP.
+    #[cfg(feature = "tch-backend")]
     pub fn new(vs: &nn::Path, hidden_size: i64, intermediate_size: i64) -> Self {
         Self {
             gate_proj: Linear::new(&vs.sub("gate_proj"), hidden_size, intermediate_size),
@@ -571,15 +651,15 @@ impl MLP {
         let gate_proj = weights
             .get(&format!("{}.gate_proj.weight", prefix))?
             .to_device(device)
-            .to_kind(Kind::Float);
+            .to_dtype(DType::Float32);
         let up_proj = weights
             .get(&format!("{}.up_proj.weight", prefix))?
             .to_device(device)
-            .to_kind(Kind::Float);
+            .to_dtype(DType::Float32);
         let down_proj = weights
             .get(&format!("{}.down_proj.weight", prefix))?
             .to_device(device)
-            .to_kind(Kind::Float);
+            .to_dtype(DType::Float32);
 
         Some(Self {
             gate_proj: Linear::from_weights(gate_proj),
@@ -608,6 +688,7 @@ pub struct TransformerLayer {
 
 impl TransformerLayer {
     /// Create a new transformer decoder layer.
+    #[cfg(feature = "tch-backend")]
     pub fn new(
         vs: &nn::Path,
         hidden_size: i64,
@@ -663,11 +744,11 @@ impl TransformerLayer {
         let input_layernorm_weight = weights
             .get(&format!("{}.input_layernorm.weight", prefix))?
             .to_device(device)
-            .to_kind(Kind::Float);
+            .to_dtype(DType::Float32);
         let post_attention_layernorm_weight = weights
             .get(&format!("{}.post_attention_layernorm.weight", prefix))?
             .to_device(device)
-            .to_kind(Kind::Float);
+            .to_dtype(DType::Float32);
 
         Some(Self {
             self_attn,
@@ -702,16 +783,19 @@ impl TransformerLayer {
     }
 
     /// Forward with debug output (for first layer only)
+    #[cfg(feature = "tch-backend")]
     pub fn forward_debug(
         &self,
         hidden_states: &Tensor,
         rotary_emb: &RotaryEmbedding,
         attention_mask: Option<&Tensor>,
     ) -> Tensor {
-        use tch::Kind;
-
         let check_nan = |name: &str, t: &Tensor| {
-            let mean: f64 = t.mean(Kind::Float).try_into().unwrap_or(f64::NAN);
+            let mean: f64 = t
+                .as_tch()
+                .mean(tch::Kind::Float)
+                .try_into()
+                .unwrap_or(f64::NAN);
             let has_nan = mean.is_nan();
             println!("    {}: mean={:.6} nan={}", name, mean, has_nan);
         };
@@ -751,11 +835,12 @@ impl TransformerLayer {
 /// snake(x) = x + (1/alpha) * sin(alpha * x)^2
 pub fn snake_activation(x: &Tensor, alpha: &Tensor) -> Tensor {
     let sin_part = (x * alpha).sin();
-    let sin_sq = sin_part.pow_tensor_scalar(2);
+    let sin_sq = sin_part.pow_scalar(2.0);
     x + (sin_sq / alpha)
 }
 
 /// 1D Convolution layer.
+#[cfg(feature = "tch-backend")]
 pub fn conv1d(
     vs: &nn::Path,
     in_channels: i64,
@@ -772,8 +857,8 @@ mod tests {
 
     #[test]
     fn test_snake_activation() {
-        let x = Tensor::from_slice(&[0.0f32, 1.0, 2.0]);
-        let alpha = Tensor::from_slice(&[1.0f32, 1.0, 1.0]);
+        let x = Tensor::from_slice_f32(&[0.0f32, 1.0, 2.0]);
+        let alpha = Tensor::from_slice_f32(&[1.0f32, 1.0, 1.0]);
 
         let result = snake_activation(&x, &alpha);
         assert_eq!(result.size(), vec![3]);

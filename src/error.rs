@@ -49,8 +49,14 @@ pub enum Qwen3TTSError {
     Json(#[from] serde_json::Error),
 
     /// Torch tensor error
+    #[cfg(feature = "tch-backend")]
     #[error("Torch error: {0}")]
     Torch(#[from] tch::TchError),
+
+    /// MLX backend error
+    #[cfg(feature = "mlx")]
+    #[error("MLX error: {0}")]
+    Mlx(String),
 
     /// Base64 decoding error
     #[error("Base64 decode error: {0}")]

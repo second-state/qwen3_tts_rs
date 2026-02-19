@@ -12,7 +12,7 @@
 use crate::error::{Qwen3TTSError, Result};
 use std::collections::HashMap;
 use std::path::Path;
-use tch::{Device, Kind, Tensor};
+use crate::tensor::{DType, Device, Tensor};
 
 /// Configuration for the audio encoder.
 #[derive(Debug, Clone)]
@@ -82,10 +82,10 @@ impl CausalConv1d {
     fn forward(&self, x: &Tensor) -> Tensor {
         let padding_total = self.kernel_size - self.stride;
         if padding_total > 0 {
-            let padded = x.constant_pad_nd([padding_total, 0]);
-            padded.conv1d(&self.weight, Some(&self.bias), [self.stride], [0], [1], 1)
+            let padded = x.constant_pad_nd(&[padding_total, 0]);
+            padded.conv1d(&self.weight, Some(&self.bias), &[self.stride], &[0], &[1], 1)
         } else {
-            x.conv1d(&self.weight, Some(&self.bias), [self.stride], [0], [1], 1)
+            x.conv1d(&self.weight, Some(&self.bias), &[self.stride], &[0], &[1], 1)
         }
     }
 }
@@ -127,10 +127,10 @@ impl EncoderResBlock {
     fn forward(&self, x: &Tensor) -> Tensor {
         // ELU → Conv1d(dim→dim/2, k=3, causal pad=2) → ELU → Conv1d(dim/2→dim, k=1, no pad)
         let h = x.elu();
-        let h = h.constant_pad_nd([2, 0]); // causal pad for k=3, stride=1
-        let h = h.conv1d(&self.conv1_weight, Some(&self.conv1_bias), [1], [0], [1], 1);
+        let h = h.constant_pad_nd(&[2, 0]); // causal pad for k=3, stride=1
+        let h = h.conv1d(&self.conv1_weight, Some(&self.conv1_bias), &[1], &[0], &[1], 1);
         let h = h.elu();
-        let h = h.conv1d(&self.conv2_weight, Some(&self.conv2_bias), [1], [0], [1], 1);
+        let h = h.conv1d(&self.conv2_weight, Some(&self.conv2_bias), &[1], &[0], &[1], 1);
         // Identity shortcut
         x + h
     }
@@ -216,8 +216,8 @@ impl EncoderTransformerLayer {
     }
 
     fn layer_norm(x: &Tensor, weight: &Tensor, bias: &Tensor) -> Tensor {
-        let mean = x.mean_dim(&[-1i64][..], true, Kind::Float);
-        let var = x.var_dim(&[-1i64][..], false, true);
+        let mean = x.mean_dim(&[-1i64], true);
+        let var = x.var_dim(&[-1i64], false, true);
         let normalized = (x - &mean) / (var + 1e-5).sqrt();
         &normalized * weight + bias
     }
@@ -233,25 +233,25 @@ impl EncoderTransformerLayer {
         // Self-attention
         let q = normed
             .matmul(&self.q_proj.tr())
-            .view([batch, seq_len, self.num_heads, self.head_dim])
-            .permute([0, 2, 1, 3]); // [B, H, T, D]
+            .view(&[batch, seq_len, self.num_heads, self.head_dim])
+            .permute(&[0, 2, 1, 3]); // [B, H, T, D]
         let k = normed
             .matmul(&self.k_proj.tr())
-            .view([batch, seq_len, self.num_heads, self.head_dim])
-            .permute([0, 2, 1, 3]);
+            .view(&[batch, seq_len, self.num_heads, self.head_dim])
+            .permute(&[0, 2, 1, 3]);
         let v = normed
             .matmul(&self.v_proj.tr())
-            .view([batch, seq_len, self.num_heads, self.head_dim])
-            .permute([0, 2, 1, 3]);
+            .view(&[batch, seq_len, self.num_heads, self.head_dim])
+            .permute(&[0, 2, 1, 3]);
 
         let scale = (self.head_dim as f64).sqrt();
         let attn_weights = q.matmul(&k.transpose(-2, -1)) / scale;
-        let attn_weights = attn_weights.softmax(-1, Kind::Float);
+        let attn_weights = attn_weights.softmax(-1);
         let attn_output = attn_weights
             .matmul(&v)
-            .permute([0, 2, 1, 3])
+            .permute(&[0, 2, 1, 3])
             .contiguous()
-            .view([batch, seq_len, -1]);
+            .view(&[batch, seq_len, -1]);
         let attn_output = attn_output.matmul(&self.o_proj.tr());
 
         // LayerScale + residual
@@ -261,7 +261,7 @@ impl EncoderTransformerLayer {
         let normed2 = Self::layer_norm(&h, &self.post_ln_weight, &self.post_ln_bias);
 
         // FFN: fc1 → GELU → fc2
-        let mlp_out = normed2.matmul(&self.fc1_weight.tr()).gelu("none");
+        let mlp_out = normed2.matmul(&self.fc1_weight.tr()).gelu();
         let mlp_out = mlp_out.matmul(&self.fc2_weight.tr());
 
         // LayerScale + residual
@@ -289,12 +289,12 @@ impl EncoderCodebook {
     fn encode(&self, x: &Tensor) -> (Tensor, Tensor) {
         // Compute squared distances: ||x - e||² = ||x||² - 2*x·e + ||e||²
         let x_sq = x
-            .pow_tensor_scalar(2)
-            .sum_dim_intlist(&[-1i64][..], true, Kind::Float); // [B, T, 1]
+            .pow_scalar(2.0)
+            .sum_dim(&[-1i64], true); // [B, T, 1]
         let e_sq = self
             .embeddings
-            .pow_tensor_scalar(2)
-            .sum_dim_intlist(&[-1i64][..], true, Kind::Float)
+            .pow_scalar(2.0)
+            .sum_dim(&[-1i64], true)
             .tr(); // [1, codebook_size]
         let dot = x.matmul(&self.embeddings.tr()); // [B, T, codebook_size]
         let distances: Tensor = &x_sq - 2.0 * &dot + &e_sq; // [B, T, codebook_size]
@@ -303,7 +303,7 @@ impl EncoderCodebook {
 
         // Look up quantized values
         let quantized =
-            Tensor::embedding(&self.embeddings, &codes.view([-1]), -1, false, false).view_as(x);
+            Tensor::embedding(&self.embeddings, &codes.view(&[-1])).view_as(x);
 
         (codes, quantized)
     }
@@ -387,9 +387,9 @@ impl EncoderRVQ {
 
         // Stack: list of [B, T] → [num_layers, B, T] → [B, num_layers, T]
         Tensor::stack(&all_codes, 0)
-            .permute([1, 0, 2])
+            .permute(&[1, 0, 2])
             .contiguous()
-            .view([batch, num_use as i64, seq_len])
+            .view(&[batch, num_use as i64, seq_len])
     }
 }
 
@@ -425,7 +425,7 @@ impl AudioEncoder {
         let config = AudioEncoderConfig::default();
 
         println!("Loading audio encoder from: {}", weights_path.display());
-        let tensors = Tensor::read_safetensors(weights_path)?;
+        let tensors = Tensor::load_safetensors(weights_path)?;
         let weights: HashMap<String, Tensor> = tensors
             .into_iter()
             .map(|(name, tensor)| (name, tensor.to_device(device)))
@@ -620,9 +620,9 @@ impl AudioEncoder {
     /// Input: f32 audio samples at 24kHz
     /// Output: Vec of frames, each frame is 16 codec codes (1 semantic + 15 acoustic)
     pub fn encode(&self, samples: &[f32]) -> Result<Vec<Vec<i64>>> {
-        let waveform = Tensor::from_slice(samples)
+        let waveform = Tensor::from_slice_f32(samples)
             .to_device(self.device)
-            .to_kind(Kind::Float)
+            .to_dtype(DType::Float32)
             .unsqueeze(0) // [1, T]
             .unsqueeze(0); // [1, 1, T]
 
@@ -654,8 +654,8 @@ impl AudioEncoder {
 
         // Downsample: Conv1d(512→512, k=4, stride=2) with causal padding
         let pad = 4 - 2; // kernel_size - stride = 2
-        let h = h.constant_pad_nd([pad, 0]);
-        let h = h.conv1d(&self.downsample_weight, None::<&Tensor>, [2], [0], [1], 1);
+        let h = h.constant_pad_nd(&[pad, 0]);
+        let h = h.conv1d(&self.downsample_weight, None::<&Tensor>, &[2], &[0], &[1], 1);
         println!("  After downsample: {:?}", h.size());
 
         // Quantize

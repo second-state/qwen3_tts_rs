@@ -10,7 +10,7 @@
 use crate::config::SpeakerEncoderConfig;
 use crate::error::{Qwen3TTSError, Result};
 use std::collections::HashMap;
-use tch::{Device, Kind, Tensor};
+use crate::tensor::{Tensor, Device, DType};
 
 // Mel spectrogram parameters (from Qwen3 TTS Python reference)
 const MEL_N_FFT: i64 = 1024;
@@ -33,12 +33,12 @@ impl Conv1d {
             .get(&format!("{}.weight", prefix))
             .ok_or_else(|| Qwen3TTSError::ModelLoad(format!("Missing {}.weight", prefix)))?
             .to_device(device)
-            .to_kind(Kind::Float);
+            .to_dtype(DType::Float32);
         let bias = weights
             .get(&format!("{}.bias", prefix))
             .ok_or_else(|| Qwen3TTSError::ModelLoad(format!("Missing {}.bias", prefix)))?
             .to_device(device)
-            .to_kind(Kind::Float);
+            .to_dtype(DType::Float32);
         Ok(Self { weight, bias })
     }
 
@@ -48,12 +48,12 @@ impl Conv1d {
         let padding = (kernel_size - 1) * dilation / 2;
         // Apply reflect padding first, then convolution with no padding
         // This matches Python's nn.Conv1d(padding="same", padding_mode="reflect")
-        let padded = x.reflection_pad1d([padding, padding]);
-        padded.conv1d(&self.weight, Some(&self.bias), [1], [0], [dilation], groups)
+        let padded = x.reflection_pad1d(&[padding, padding]);
+        padded.conv1d(&self.weight, Some(&self.bias), &[1], &[0], &[dilation], groups)
     }
 
     fn forward_no_pad(&self, x: &Tensor) -> Tensor {
-        x.conv1d(&self.weight, Some(&self.bias), [1], [0], [1], 1)
+        x.conv1d(&self.weight, Some(&self.bias), &[1], &[0], &[1], 1)
     }
 }
 
@@ -124,7 +124,7 @@ impl SEBlock {
 
     fn forward(&self, x: &Tensor) -> Tensor {
         // Global average pooling over time
-        let s = x.mean_dim(&[2i64][..], true, Kind::Float);
+        let s = x.mean_dim(&[2i64], true);
         let s = self.conv1.forward_no_pad(&s).relu();
         let s = self.conv2.forward_no_pad(&s).sigmoid();
         x * &s
@@ -184,25 +184,25 @@ impl Asp {
 
     fn forward(&self, x: &Tensor) -> Tensor {
         // x: [B, C, T]
-        let mean = x.mean_dim(&[2i64][..], true, Kind::Float); // [B, C, 1]
-        let std = x.std_dim(&[2i64][..], true, true); // [B, C, 1]
+        let mean = x.mean_dim(&[2i64], true); // [B, C, 1]
+        let std = x.std_dim(&[2i64], true, true); // [B, C, 1]
 
         // Expand mean and std to time dimension
         let t = x.size()[2];
         let mean_expanded = mean.expand_as(x);
-        let std_expanded = std.expand([-1, -1, t], false);
+        let std_expanded = std.expand(&[-1, -1, t], false);
 
         // Concatenate input, mean, std → [B, 3C, T]
         let attn_input = Tensor::cat(&[x.shallow_clone(), mean_expanded, std_expanded], 1);
 
         // Attention network
         let attn = self.tdnn.forward_no_pad(&attn_input).tanh();
-        let attn = self.conv.forward_no_pad(&attn).softmax(2, Kind::Float); // [B, C, T]
+        let attn = self.conv.forward_no_pad(&attn).softmax(2); // [B, C, T]
 
         // Weighted statistics
-        let weighted_mean = (x * &attn).sum_dim_intlist(&[2i64][..], false, Kind::Float); // [B, C]
-        let weighted_var = ((x - &weighted_mean.unsqueeze(2)).pow_tensor_scalar(2) * &attn)
-            .sum_dim_intlist(&[2i64][..], false, Kind::Float); // [B, C]
+        let weighted_mean = (x * &attn).sum_dim(&[2i64], false); // [B, C]
+        let weighted_var = ((x - &weighted_mean.unsqueeze(2)).pow_scalar(2.0) * &attn)
+            .sum_dim(&[2i64], false); // [B, C]
         let weighted_std = (weighted_var + 1e-6).sqrt();
 
         // Concatenate mean and std → [B, 2C]
@@ -277,7 +277,7 @@ impl SpeakerEncoder {
             MEL_FMAX,
             device,
         );
-        let hann_window = Tensor::hann_window(MEL_WIN_SIZE, (Kind::Float, device));
+        let hann_window = Tensor::hann_window(MEL_WIN_SIZE, device);
 
         println!("SpeakerEncoder loaded successfully");
 
@@ -299,9 +299,9 @@ impl SpeakerEncoder {
     /// Input: f32 audio samples at 24kHz.
     /// Output: 1024-dim speaker embedding tensor (raw fc output, not normalized).
     pub fn extract_embedding(&self, audio_samples: &[f32]) -> Result<Tensor> {
-        let waveform = Tensor::from_slice(audio_samples)
+        let waveform = Tensor::from_slice_f32(audio_samples)
             .to_device(self.device)
-            .to_kind(Kind::Float);
+            .to_dtype(DType::Float32);
 
         // Compute mel spectrogram
         let mel = self.compute_mel_spectrogram(&waveform)?;
@@ -321,23 +321,22 @@ impl SpeakerEncoder {
         let pad = MEL_N_FFT / 2;
         // reflection_pad1d requires 3D input [B, C, T]
         let waveform_3d = waveform.unsqueeze(0).unsqueeze(0);
-        let padded_3d = waveform_3d.reflection_pad1d([pad, pad]);
+        let padded_3d = waveform_3d.reflection_pad1d(&[pad, pad]);
         let padded = padded_3d.squeeze_dim(0).squeeze_dim(0);
 
         // STFT (no center padding since we padded manually)
         let stft = padded.stft(
             MEL_N_FFT,
-            Some(MEL_HOP_SIZE),
-            Some(MEL_WIN_SIZE),
-            Some(&self.hann_window),
+            MEL_HOP_SIZE,
+            MEL_WIN_SIZE,
+            &self.hann_window,
             false, // normalized
             true,  // onesided
             true,  // return_complex
-            false, // align_to_window
         );
 
         // Magnitude spectrogram
-        let magnitude = stft.abs().pow_tensor_scalar(2); // [freq_bins, T]
+        let magnitude = stft.abs().pow_scalar(2.0); // [freq_bins, T]
 
         // Apply mel filterbank: [n_mels, freq_bins] @ [freq_bins, T] → [n_mels, T]
         let mel_spec = self.mel_basis.matmul(&magnitude);
@@ -434,8 +433,8 @@ fn create_mel_filterbank(
         }
     }
 
-    Tensor::from_slice(&filterbank)
-        .reshape([n_mels, n_freqs])
+    Tensor::from_slice_f32(&filterbank)
+        .reshape(&[n_mels, n_freqs])
         .to_device(device)
 }
 

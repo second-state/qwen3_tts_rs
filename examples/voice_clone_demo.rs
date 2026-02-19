@@ -21,8 +21,8 @@ use qwen3_tts::audio::write_wav_file;
 use qwen3_tts::audio_encoder::AudioEncoder;
 use qwen3_tts::inference::TTSInference;
 use qwen3_tts::speaker_encoder::SpeakerEncoder;
+use qwen3_tts::tensor::Device;
 use std::path::Path;
-use tch::Device;
 
 fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().collect();
@@ -103,7 +103,9 @@ fn main() -> anyhow::Result<()> {
     println!("Extracting speaker embedding...");
     let speaker_embedding = speaker_encoder.extract_embedding(&ref_samples)?;
     println!("  Speaker embedding shape: {:?}", speaker_embedding.size());
-    let emb_norm = f64::try_from(&speaker_embedding.norm()).unwrap_or(0.0);
+    let emb_sq = &speaker_embedding * &speaker_embedding;
+    let emb_norm = emb_sq.mean_all().try_into_f64().unwrap_or(0.0).sqrt()
+        * (speaker_embedding.numel() as f64).sqrt();
     println!("  Speaker embedding norm: {:.4}", emb_norm);
 
     // Step 5: Generate speech

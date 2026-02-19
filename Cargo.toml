@@ -12,7 +12,8 @@ exclude = ["models/", "*.wav", ".DS_Store"]
 
 [dependencies]
 # PyTorch bindings via libtorch (0.23 for PyTorch 2.10.0 compatibility)
-tch = "0.23"
+# Only used with the tch-backend feature
+tch = { version = "0.23", optional = true }
 
 # Tokenization
 tokenizers = "0.21"
@@ -37,8 +38,15 @@ anyhow = "1.0"
 tracing = "0.1"
 
 [features]
-default = []
+default = ["tch-backend"]
+# Use libtorch/PyTorch as the computation backend (default)
+tch-backend = ["dep:tch"]
+# Use Apple MLX as the computation backend (macOS Apple Silicon only).
+# Requires the mlx-c git submodule: `git submodule update --init --recursive`
+mlx = []
+
+[build-dependencies]
+cmake = "0.1"
 
 [dev-dependencies]
 tempfile = "3.14"
-
