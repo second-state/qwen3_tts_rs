@@ -88,10 +88,8 @@ jobs:
           "
 
       - name: Generate English audio
-        env:
-          LIBTORCH_USE_PYTORCH: "1"
         run: |
-          cargo run --example tts_demo --release -- \
+          ./target/release/examples/tts \
             models/Qwen3-TTS-12Hz-0.6B-CustomVoice \
             "Hello! This is a test of the Qwen3 TTS system running on CI." \
             Vivian \
@@ -99,10 +97,8 @@ jobs:
           mv output.wav vivian_english.wav
 
       - name: Generate Chinese audio
-        env:
-          LIBTORCH_USE_PYTORCH: "1"
         run: |
-          cargo run --example tts_demo --release -- \
+          ./target/release/examples/tts \
             models/Qwen3-TTS-12Hz-0.6B-CustomVoice \
             "你好！这是Qwen3语音合成系统的持续集成测试。" \
             Vivian \
@@ -110,10 +106,8 @@ jobs:
           mv output.wav vivian_chinese.wav
 
       - name: Generate Ryan reference audio
-        env:
-          LIBTORCH_USE_PYTORCH: "1"
         run: |
-          cargo run --example tts_demo --release -- \
+          ./target/release/examples/tts \
             models/Qwen3-TTS-12Hz-0.6B-CustomVoice \
             "The quick brown fox jumps over the lazy dog." \
             Ryan \
@@ -139,10 +133,8 @@ jobs:
           "
 
       - name: Voice clone from Ryan reference
-        env:
-          LIBTORCH_USE_PYTORCH: "1"
         run: |
-          cargo run --example voice_clone_demo --release -- \
+          ./target/release/examples/voice_clone \
             models/Qwen3-TTS-12Hz-0.6B-Base \
             ryan_reference.wav \
             "This is a voice cloning test using Ryan as the reference speaker." \
@@ -150,10 +142,8 @@ jobs:
           mv output_voice_clone.wav output_ryan_clone.wav
 
       - name: Voice clone (ICL mode) from Ryan reference
-        env:
-          LIBTORCH_USE_PYTORCH: "1"
         run: |
-          cargo run --example voice_clone_demo --release -- \
+          ./target/release/examples/voice_clone \
             models/Qwen3-TTS-12Hz-0.6B-Base \
             ryan_reference.wav \
             "This is a voice cloning test with in-context learning." \
@@ -180,10 +170,8 @@ jobs:
           "
 
       - name: Generate urgent voice (1.7B with instruction)
-        env:
-          LIBTORCH_USE_PYTORCH: "1"
         run: |
-          cargo run --example tts_demo --release -- \
+          ./target/release/examples/tts \
             models/Qwen3-TTS-12Hz-1.7B-CustomVoice \
             "Breaking news! There has been a major development in the city center." \
             Vivian \
@@ -192,10 +180,8 @@ jobs:
           mv output.wav vivian_urgent_1.7b.wav
 
       - name: Generate happy voice (1.7B with instruction)
-        env:
-          LIBTORCH_USE_PYTORCH: "1"
         run: |
-          cargo run --example tts_demo --release -- \
+          ./target/release/examples/tts \
             models/Qwen3-TTS-12Hz-1.7B-CustomVoice \
             "I am so happy to announce that we have won the championship!" \
             Vivian \
@@ -208,8 +194,8 @@ jobs:
         with:
           name: qwen3-tts-${{ matrix.os }}-${{ runner.arch }}
           path: |
-            target/release/examples/tts_demo
-            target/release/examples/voice_clone_demo
+            target/release/examples/tts
+            target/release/examples/voice_clone
             vivian_english.wav
             vivian_chinese.wav
             ryan_reference.wav

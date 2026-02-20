@@ -1,16 +1,16 @@
 // Copyright 2026 Claude Code on behalf of Michael Yuan.
 // SPDX-License-Identifier: Apache-2.0
 
-//! Demo: Generate speech from text using Qwen3 TTS.
+//! Generate speech from text using Qwen3 TTS.
 //!
 //! Usage:
-//!   cargo run --example tts_demo -- <model_path> [text] [speaker] [language] [instruction]
+//!   tts <model_path> [text] [speaker] [language] [instruction]
 //!
 //! Example (basic):
-//!   cargo run --example tts_demo -- ./models/Qwen3-TTS-12Hz-0.6B-CustomVoice "Hello, world!" Vivian english
+//!   tts ./models/Qwen3-TTS-12Hz-0.6B-CustomVoice "Hello, world!" Vivian english
 //!
 //! Example (with instruction control, requires 1.7B model):
-//!   cargo run --example tts_demo -- ./models/Qwen3-TTS-12Hz-1.7B-CustomVoice "This is urgent news!" Vivian english "Speak in an urgent and excited voice"
+//!   tts ./models/Qwen3-TTS-12Hz-1.7B-CustomVoice "This is urgent news!" Vivian english "Speak in an urgent and excited voice"
 
 use qwen3_tts::audio::write_wav_file;
 use qwen3_tts::inference::TTSInference;

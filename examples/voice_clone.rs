@@ -1,19 +1,17 @@
 // Copyright 2026 Claude Code on behalf of Michael Yuan.
 // SPDX-License-Identifier: Apache-2.0
 
-//! Demo: Clone a voice from reference audio and generate speech.
+//! Clone a voice from reference audio and generate speech.
 //!
 //! Usage:
-//!   cargo run --example voice_clone_demo --release -- <model_path> <ref_audio> [text] [language] [ref_text]
+//!   voice_clone <model_path> <ref_audio> [text] [language] [ref_text]
 //!
 //! Without ref_text (x-vector only mode):
-//!   cargo run --example voice_clone_demo --release -- \
-//!     models/Qwen3-TTS-12Hz-0.6B-Base ref.wav \
+//!   voice_clone models/Qwen3-TTS-12Hz-0.6B-Base ref.wav \
 //!     "Hello world, this is a voice cloning test." english
 //!
 //! With ref_text (ICL mode, higher quality):
-//!   cargo run --example voice_clone_demo --release -- \
-//!     models/Qwen3-TTS-12Hz-0.6B-Base ref.wav \
+//!   voice_clone models/Qwen3-TTS-12Hz-0.6B-Base ref.wav \
 //!     "Hello world, this is a voice cloning test." english \
 //!     "This is the transcript of the reference audio."
 

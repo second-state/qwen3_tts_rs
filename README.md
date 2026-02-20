@@ -116,34 +116,33 @@ cd qwen3_tts_rs
 **tch-backend (default):**
 
 ```bash
-cargo build --release
+cargo build --examples --release
 ```
 
 **MLX backend:**
 
 ```bash
 git submodule update --init --recursive
-cargo build --release --no-default-features --features mlx
+cargo build --examples --release --no-default-features --features mlx
 ```
+
+This produces the CLI tools in `target/release/examples/`:
+- `tts` — text-to-speech generation
+- `voice_clone` — voice cloning from reference audio
+- `test_weights` — model weight verification
 
 ## Run
 
-### TTS Demo
-
-Generate speech from text:
+### Text-to-Speech
 
 ```bash
-# tch-backend (default)
-cargo run --example tts_demo --release -- <model_path> [text] [speaker] [language] [instruction]
-
-# MLX backend
-cargo run --example tts_demo --release --no-default-features --features mlx -- <model_path> [text] [speaker] [language] [instruction]
+./target/release/examples/tts <model_path> [text] [speaker] [language] [instruction]
 ```
 
 Example:
 
 ```bash
-cargo run --example tts_demo --release -- \
+./target/release/examples/tts \
   models/Qwen3-TTS-12Hz-0.6B-CustomVoice \
   "Hello world, this is a test." \
   Vivian \
@@ -157,7 +156,7 @@ This generates an `output.wav` file with 24kHz audio.
 The 1.7B CustomVoice model supports instruction control to modulate voice characteristics like emotion, speaking style, and pace:
 
 ```bash
-cargo run --example tts_demo --release -- \
+./target/release/examples/tts \
   models/Qwen3-TTS-12Hz-1.7B-CustomVoice \
   "Breaking news! There has been a major development." \
   Vivian \
@@ -171,12 +170,12 @@ Other instruction examples:
 - `"Speak in a whisper"`
 - `"Speak with a sad tone"`
 
-### Voice Clone Demo
+### Voice Cloning
 
 Clone a voice from a reference audio file using the Base model:
 
 ```bash
-cargo run --example voice_clone_demo --release -- <model_path> <ref_audio> [text] [language] [ref_text]
+./target/release/examples/voice_clone <model_path> <ref_audio> [text] [language] [ref_text]
 ```
 
 **Preparing reference audio:** The reference audio must be a mono 24kHz 16-bit WAV file. Use ffmpeg to convert from other formats:
@@ -190,7 +189,7 @@ Sample reference audio files are provided in the `reference_audio/` directory.
 **X-vector only mode** (no reference text):
 
 ```bash
-cargo run --example voice_clone_demo --release -- \
+./target/release/examples/voice_clone \
   models/Qwen3-TTS-12Hz-0.6B-Base \
   reference_audio/trump.wav \
   "Hello world, this is a voice cloning test." \
@@ -200,7 +199,7 @@ cargo run --example voice_clone_demo --release -- \
 **ICL mode** (with reference text, higher quality):
 
 ```bash
-cargo run --example voice_clone_demo --release -- \
+./target/release/examples/voice_clone \
   models/Qwen3-TTS-12Hz-0.6B-Base \
   reference_audio/trump.wav \
   "Hello world, this is a voice cloning test." \
@@ -208,7 +207,7 @@ cargo run --example voice_clone_demo --release -- \
   "Angered and appalled millions of Americans across the political spectrum"
 ```
 
-When a reference text transcript is provided as the 5th argument, the demo uses **ICL (In-Context Learning) mode**, which encodes the reference audio into codec tokens and conditions generation on both the speaker embedding and the reference audio/text. This typically produces higher fidelity voice cloning compared to x-vector only mode.
+When a reference text transcript is provided as the 5th argument, ICL (In-Context Learning) mode is used, which encodes the reference audio into codec tokens and conditions generation on both the speaker embedding and the reference audio/text. This typically produces higher fidelity voice cloning compared to x-vector only mode.
 
 Output is written to `output_voice_clone.wav`.
 
@@ -217,7 +216,7 @@ Output is written to `output_voice_clone.wav`.
 Verify that model weights load correctly:
 
 ```bash
-cargo run --example test_weights --release -- models/Qwen3-TTS-12Hz-0.6B-CustomVoice
+./target/release/examples/test_weights models/Qwen3-TTS-12Hz-0.6B-CustomVoice
 ```
 
 ### Available speakers (CustomVoice 0.6B)

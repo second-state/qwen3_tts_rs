@@ -4,10 +4,10 @@
 //! Test weight loading from safetensors files.
 //!
 //! Usage:
-//!   cargo run --example test_weights -- <model_path>
+//!   test_weights <model_path>
 //!
 //! Example:
-//!   cargo run --example test_weights -- ./models/Qwen3-TTS-12Hz-0.6B-CustomVoice
+//!   test_weights ./models/Qwen3-TTS-12Hz-0.6B-CustomVoice
 
 use qwen3_tts::tensor::{DType, Tensor};
 use std::path::Path;

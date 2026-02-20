@@ -56,7 +56,7 @@ Compile all example binaries.
 LIBTORCH_USE_PYTORCH=1 cargo build --examples --release
 ```
 
-**Pass criteria:** All three example binaries (`tts_demo`, `voice_clone_demo`, `test_weights`) compile without errors.
+**Pass criteria:** All three example binaries (`tts`, `voice_clone`, `test_weights`) compile without errors.
 
 ### 1.3 Formatting check
 
@@ -162,7 +162,7 @@ These tests require downloaded model weights and run the full inference pipeline
 Verify that model weights load correctly and tensor operations work.
 
 ```bash
-LIBTORCH_USE_PYTORCH=1 cargo run --example test_weights --release -- \
+LIBTORCH_USE_PYTORCH=1 ./target/release/examples/test_weights \
   models/Qwen3-TTS-12Hz-0.6B-CustomVoice
 ```
 
@@ -177,7 +177,7 @@ LIBTORCH_USE_PYTORCH=1 cargo run --example test_weights --release -- \
 Generate English speech with the Vivian speaker.
 
 ```bash
-LIBTORCH_USE_PYTORCH=1 cargo run --example tts_demo --release -- \
+LIBTORCH_USE_PYTORCH=1 ./target/release/examples/tts \
   models/Qwen3-TTS-12Hz-0.6B-CustomVoice \
   "Hello! This is a test of the Qwen3 TTS system running on CI." \
   Vivian \
@@ -197,7 +197,7 @@ mv output.wav vivian_english.wav
 Generate Chinese speech with the Vivian speaker.
 
 ```bash
-LIBTORCH_USE_PYTORCH=1 cargo run --example tts_demo --release -- \
+LIBTORCH_USE_PYTORCH=1 ./target/release/examples/tts \
   models/Qwen3-TTS-12Hz-0.6B-CustomVoice \
   "你好！这是Qwen3语音合成系统的持续集成测试。" \
   Vivian \
@@ -217,7 +217,7 @@ mv output.wav vivian_chinese.wav
 Generate speech with the Ryan speaker to verify speaker selection and to produce reference audio for voice cloning tests.
 
 ```bash
-LIBTORCH_USE_PYTORCH=1 cargo run --example tts_demo --release -- \
+LIBTORCH_USE_PYTORCH=1 ./target/release/examples/tts \
   models/Qwen3-TTS-12Hz-0.6B-CustomVoice \
   "The quick brown fox jumps over the lazy dog." \
   Ryan \
@@ -236,7 +236,7 @@ mv output.wav ryan_reference.wav
 Clone a voice from reference audio using speaker embedding extraction only.
 
 ```bash
-LIBTORCH_USE_PYTORCH=1 cargo run --example voice_clone_demo --release -- \
+LIBTORCH_USE_PYTORCH=1 ./target/release/examples/voice_clone \
   models/Qwen3-TTS-12Hz-0.6B-Base \
   ryan_reference.wav \
   "This is a voice cloning test using Ryan as the reference speaker." \
@@ -260,7 +260,7 @@ mv output_voice_clone.wav output_ryan_clone.wav
 Clone a voice using ICL (In-Context Learning) with reference text transcript and codec token encoding.
 
 ```bash
-LIBTORCH_USE_PYTORCH=1 cargo run --example voice_clone_demo --release -- \
+LIBTORCH_USE_PYTORCH=1 ./target/release/examples/voice_clone \
   models/Qwen3-TTS-12Hz-0.6B-Base \
   ryan_reference.wav \
   "This is a voice cloning test with in-context learning." \
@@ -288,7 +288,7 @@ mv output_voice_clone.wav output_ryan_clone_icl.wav
 Generate speech with an urgent/excited voice using the 1.7B model's instruction control feature.
 
 ```bash
-LIBTORCH_USE_PYTORCH=1 cargo run --example tts_demo --release -- \
+LIBTORCH_USE_PYTORCH=1 ./target/release/examples/tts \
   models/Qwen3-TTS-12Hz-1.7B-CustomVoice \
   "Breaking news! There has been a major development in the city center." \
   Vivian \
@@ -310,7 +310,7 @@ mv output.wav vivian_urgent_1.7b.wav
 Generate speech with a happy/joyful voice using the 1.7B model's instruction control feature.
 
 ```bash
-LIBTORCH_USE_PYTORCH=1 cargo run --example tts_demo --release -- \
+LIBTORCH_USE_PYTORCH=1 ./target/release/examples/tts \
   models/Qwen3-TTS-12Hz-1.7B-CustomVoice \
   "I am so happy to announce that we have won the championship!" \
   Vivian \
@@ -349,8 +349,8 @@ The CI uploads the following artifacts per platform:
 
 | Artifact | Source test |
 |----------|------------|
-| `target/release/examples/tts_demo` | Build (1.2) |
-| `target/release/examples/voice_clone_demo` | Build (1.2) |
+| `target/release/examples/tts` | Build (1.2) |
+| `target/release/examples/voice_clone` | Build (1.2) |
 | `vivian_english.wav` | English generation (3.2) |
 | `vivian_chinese.wav` | Chinese generation (3.3) |
 | `ryan_reference.wav` | Ryan reference (3.4) |
