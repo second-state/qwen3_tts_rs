@@ -75,6 +75,7 @@ jobs:
         if: matrix.backend == 'tch'
         env:
           LIBTORCH_USE_PYTORCH: "1"
+          LIBTORCH_BYPASS_VERSION_CHECK: "1"
         run: cargo build --release
 
       - name: Build (MLX)
@@ -85,6 +86,7 @@ jobs:
         if: matrix.backend == 'tch'
         env:
           LIBTORCH_USE_PYTORCH: "1"
+          LIBTORCH_BYPASS_VERSION_CHECK: "1"
         run: cargo build --examples --release
 
       - name: Cache model weights

@@ -66,6 +66,7 @@ jobs:
         if: matrix.backend == 'tch'
         env:
           LIBTORCH: ${{ github.workspace }}/libtorch
+          LIBTORCH_BYPASS_VERSION_CHECK: "1"
         run: cargo build --release
 
       - name: Build (MLX)
