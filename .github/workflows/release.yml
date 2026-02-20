@@ -49,6 +49,10 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Install gfortran (ARM64)
+        if: runner.arch == 'ARM64' && runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libgfortran5
+
       - name: Download libtorch
         if: matrix.backend == 'tch'
         run: curl -Lo ${{ matrix.libtorch-archive }} "${{ matrix.libtorch-url }}"
