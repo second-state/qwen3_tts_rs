@@ -7,7 +7,6 @@
 //! identically regardless of which backend feature is enabled. All neural
 //! network modules use these types instead of importing `tch` directly.
 
-use std::collections::HashMap;
 use std::path::Path;
 
 // ---------------------------------------------------------------------------
@@ -228,7 +227,7 @@ impl Tensor {
     }
 
     pub fn arange_f(start: f64, end: f64, step: f64, dtype: DType, device: Device) -> Self {
-        let t = tch::Tensor::arange_step(
+        let t = tch::Tensor::arange_start_step(
             start,
             end,
             step,
@@ -248,7 +247,13 @@ impl Tensor {
     }
 
     pub fn embedding(weight: &Tensor, indices: &Tensor) -> Self {
-        Tensor::from_tch(weight.inner.index_select(0, &indices.inner))
+        Tensor::from_tch(tch::Tensor::embedding(
+            &weight.inner,
+            &indices.inner,
+            -1,    // padding_idx (none)
+            false, // scale_grad_by_freq
+            false, // sparse
+        ))
     }
 
     pub fn hann_window(size: i64, device: Device) -> Self {
@@ -422,8 +427,7 @@ impl Tensor {
     }
 
     pub fn var_dim(&self, dims: &[i64], unbiased: bool, keepdim: bool) -> Self {
-        let correction = if unbiased { 1i64 } else { 0i64 };
-        Tensor::from_tch(self.inner.var_dim(dims, correction, keepdim))
+        Tensor::from_tch(self.inner.var_dim(dims, unbiased, keepdim))
     }
 
     pub fn std_dim(&self, dims: &[i64], unbiased: bool, keepdim: bool) -> Self {
@@ -550,6 +554,7 @@ impl Tensor {
             normalized,
             onesided,
             return_complex,
+            false,
         ))
     }
 
