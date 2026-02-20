@@ -64,6 +64,13 @@ fn main() -> anyhow::Result<()> {
     }
     println!();
 
+    // Initialize MLX backend with GPU (Metal) when using the mlx feature
+    #[cfg(feature = "mlx")]
+    {
+        qwen3_tts::backend::mlx::stream::init_mlx(true);
+        println!("MLX backend initialized (Metal GPU)");
+    }
+
     // Step 1: Load model
     println!("Loading model from: {}", model_path);
     let device = Device::Cpu;

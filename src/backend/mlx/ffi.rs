@@ -9,6 +9,7 @@
 
 #![allow(non_camel_case_types)]
 #![allow(dead_code)]
+#![allow(missing_docs)]
 
 use std::os::raw::{c_char, c_float, c_int, c_void};
 
@@ -78,6 +79,16 @@ pub enum mlx_device_type {
     MLX_GPU = 1,
 }
 
+/// Optional float value (matches mlx_optional_float_ struct).
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct mlx_optional_float {
+    /// The float value.
+    pub value: c_float,
+    /// Whether the value is present.
+    pub has_value: bool,
+}
+
 extern "C" {
     // -----------------------------------------------------------------------
     // Array lifecycle
@@ -91,14 +102,13 @@ extern "C" {
     // Array creation
     // -----------------------------------------------------------------------
 
-    /// Create array from raw data buffer.
+    /// Create array from raw data buffer. Returns array directly.
     pub fn mlx_array_new_data(
-        res: *mut mlx_array,
         data: *const c_void,
         shape: *const c_int,
         ndim: c_int,
         dtype: mlx_dtype,
-    ) -> c_int;
+    ) -> mlx_array;
 
     /// Create a scalar float32 array.
     pub fn mlx_array_new_float(val: c_float) -> mlx_array;
@@ -113,9 +123,9 @@ extern "C" {
     // Array metadata
     // -----------------------------------------------------------------------
 
-    pub fn mlx_array_ndim(arr: mlx_array) -> c_int;
-    pub fn mlx_array_shape(arr: mlx_array, dim: c_int) -> c_int;
-    pub fn mlx_array_size(arr: mlx_array) -> c_int;
+    pub fn mlx_array_ndim(arr: mlx_array) -> usize;
+    pub fn mlx_array_shape(arr: mlx_array) -> *const c_int;
+    pub fn mlx_array_size(arr: mlx_array) -> usize;
     pub fn mlx_array_dtype(arr: mlx_array) -> mlx_dtype;
 
     // -----------------------------------------------------------------------
@@ -137,13 +147,13 @@ extern "C" {
     pub fn mlx_array_data_bool(arr: mlx_array) -> *const bool;
 
     /// Get a scalar float32 value.
-    pub fn mlx_array_item_float32(arr: mlx_array) -> c_float;
+    pub fn mlx_array_item_float32(res: *mut c_float, arr: mlx_array) -> c_int;
 
     /// Get a scalar int32 value.
-    pub fn mlx_array_item_int32(arr: mlx_array) -> i32;
+    pub fn mlx_array_item_int32(res: *mut i32, arr: mlx_array) -> c_int;
 
     /// Get a scalar int64 value.
-    pub fn mlx_array_item_int64(arr: mlx_array) -> i64;
+    pub fn mlx_array_item_int64(res: *mut i64, arr: mlx_array) -> c_int;
 
     // -----------------------------------------------------------------------
     // Device
@@ -194,15 +204,15 @@ extern "C" {
         res: *mut mlx_array,
         a: mlx_array,
         shape: *const c_int,
-        ndim: c_int,
+        shape_num: usize,
         s: mlx_stream,
     ) -> c_int;
 
-    pub fn mlx_transpose(
+    pub fn mlx_transpose_axes(
         res: *mut mlx_array,
         a: mlx_array,
         axes: *const c_int,
-        naxes: c_int,
+        axes_num: usize,
         s: mlx_stream,
     ) -> c_int;
 
@@ -217,16 +227,15 @@ extern "C" {
     pub fn mlx_expand_dims(
         res: *mut mlx_array,
         a: mlx_array,
-        axes: *const c_int,
-        naxes: c_int,
+        axis: c_int,
         s: mlx_stream,
     ) -> c_int;
 
-    pub fn mlx_squeeze(
+    pub fn mlx_squeeze_axes(
         res: *mut mlx_array,
         a: mlx_array,
         axes: *const c_int,
-        naxes: c_int,
+        axes_num: usize,
         s: mlx_stream,
     ) -> c_int;
 
@@ -242,11 +251,11 @@ extern "C" {
         res: *mut mlx_array,
         a: mlx_array,
         start: *const c_int,
-        nstart: c_int,
+        start_num: usize,
         stop: *const c_int,
-        nstop: c_int,
+        stop_num: usize,
         strides: *const c_int,
-        nstrides: c_int,
+        strides_num: usize,
         s: mlx_stream,
     ) -> c_int;
 
@@ -254,7 +263,7 @@ extern "C" {
         res: *mut mlx_array,
         a: mlx_array,
         shape: *const c_int,
-        ndim: c_int,
+        shape_num: usize,
         s: mlx_stream,
     ) -> c_int;
 
@@ -269,22 +278,22 @@ extern "C" {
         res: *mut mlx_array,
         a: mlx_array,
         shape: *const c_int,
-        nshape: c_int,
+        shape_num: usize,
         strides: *const i64,
-        nstrides: c_int,
-        offset: i64,
+        strides_num: usize,
+        offset: usize,
         s: mlx_stream,
     ) -> c_int;
 
     // Concatenation
-    pub fn mlx_concatenate(
+    pub fn mlx_concatenate_axis(
         res: *mut mlx_array,
         arrays: mlx_vector_array,
         axis: c_int,
         s: mlx_stream,
     ) -> c_int;
 
-    pub fn mlx_stack(
+    pub fn mlx_stack_axis(
         res: *mut mlx_array,
         arrays: mlx_vector_array,
         axis: c_int,
@@ -295,7 +304,7 @@ extern "C" {
     pub fn mlx_zeros(
         res: *mut mlx_array,
         shape: *const c_int,
-        ndim: c_int,
+        shape_num: usize,
         dtype: mlx_dtype,
         s: mlx_stream,
     ) -> c_int;
@@ -303,7 +312,7 @@ extern "C" {
     pub fn mlx_ones(
         res: *mut mlx_array,
         shape: *const c_int,
-        ndim: c_int,
+        shape_num: usize,
         dtype: mlx_dtype,
         s: mlx_stream,
     ) -> c_int;
@@ -311,7 +320,7 @@ extern "C" {
     pub fn mlx_full(
         res: *mut mlx_array,
         shape: *const c_int,
-        ndim: c_int,
+        shape_num: usize,
         val: mlx_array,
         dtype: mlx_dtype,
         s: mlx_stream,
@@ -327,7 +336,7 @@ extern "C" {
     ) -> c_int;
 
     // Indexing
-    pub fn mlx_take(
+    pub fn mlx_take_axis(
         res: *mut mlx_array,
         a: mlx_array,
         indices: mlx_array,
@@ -348,18 +357,45 @@ extern "C" {
         a: mlx_array,
         indices: mlx_vector_array,
         axes: *const c_int,
-        naxes: c_int,
+        axes_num: usize,
         slice_sizes: *const c_int,
-        nslice_sizes: c_int,
+        slice_sizes_num: usize,
         s: mlx_stream,
     ) -> c_int;
 
-    // Reduction
-    pub fn mlx_sum(
+    // Reduction (with axes)
+    pub fn mlx_sum_axes(
         res: *mut mlx_array,
         a: mlx_array,
         axes: *const c_int,
-        naxes: c_int,
+        axes_num: usize,
+        keepdims: bool,
+        s: mlx_stream,
+    ) -> c_int;
+
+    pub fn mlx_mean_axes(
+        res: *mut mlx_array,
+        a: mlx_array,
+        axes: *const c_int,
+        axes_num: usize,
+        keepdims: bool,
+        s: mlx_stream,
+    ) -> c_int;
+
+    pub fn mlx_var_axes(
+        res: *mut mlx_array,
+        a: mlx_array,
+        axes: *const c_int,
+        axes_num: usize,
+        keepdims: bool,
+        ddof: c_int,
+        s: mlx_stream,
+    ) -> c_int;
+
+    // Reduction (all axes)
+    pub fn mlx_sum(
+        res: *mut mlx_array,
+        a: mlx_array,
         keepdims: bool,
         s: mlx_stream,
     ) -> c_int;
@@ -367,37 +403,11 @@ extern "C" {
     pub fn mlx_mean(
         res: *mut mlx_array,
         a: mlx_array,
-        axes: *const c_int,
-        naxes: c_int,
         keepdims: bool,
         s: mlx_stream,
     ) -> c_int;
 
-    pub fn mlx_var(
-        res: *mut mlx_array,
-        a: mlx_array,
-        axes: *const c_int,
-        naxes: c_int,
-        keepdims: bool,
-        ddof: c_int,
-        s: mlx_stream,
-    ) -> c_int;
-
-    pub fn mlx_sum_all(
-        res: *mut mlx_array,
-        a: mlx_array,
-        keepdims: bool,
-        s: mlx_stream,
-    ) -> c_int;
-
-    pub fn mlx_mean_all(
-        res: *mut mlx_array,
-        a: mlx_array,
-        keepdims: bool,
-        s: mlx_stream,
-    ) -> c_int;
-
-    pub fn mlx_argmax(
+    pub fn mlx_argmax_axis(
         res: *mut mlx_array,
         a: mlx_array,
         axis: c_int,
@@ -405,7 +415,7 @@ extern "C" {
         s: mlx_stream,
     ) -> c_int;
 
-    pub fn mlx_argmin(
+    pub fn mlx_argmin_axis(
         res: *mut mlx_array,
         a: mlx_array,
         axis: c_int,
@@ -424,11 +434,11 @@ extern "C" {
     pub fn mlx_tanh(res: *mut mlx_array, a: mlx_array, s: mlx_stream) -> c_int;
 
     // Activation-related
-    pub fn mlx_softmax(
+    pub fn mlx_softmax_axes(
         res: *mut mlx_array,
         a: mlx_array,
         axes: *const c_int,
-        naxes: c_int,
+        axes_num: usize,
         precise: bool,
         s: mlx_stream,
     ) -> c_int;
@@ -458,7 +468,7 @@ extern "C" {
     pub fn mlx_tril(res: *mut mlx_array, a: mlx_array, k: c_int, s: mlx_stream) -> c_int;
 
     // Top-k
-    pub fn mlx_topk(
+    pub fn mlx_topk_axis(
         res: *mut mlx_array,
         a: mlx_array,
         k: c_int,
@@ -473,7 +483,7 @@ extern "C" {
         axis: c_int,
         s: mlx_stream,
     ) -> c_int;
-    pub fn mlx_argsort(
+    pub fn mlx_argsort_axis(
         res: *mut mlx_array,
         a: mlx_array,
         axis: c_int,
@@ -507,6 +517,7 @@ extern "C" {
         stride: c_int,
         padding: c_int,
         dilation: c_int,
+        output_padding: c_int,
         groups: c_int,
         s: mlx_stream,
     ) -> c_int;
@@ -516,12 +527,13 @@ extern "C" {
         res: *mut mlx_array,
         a: mlx_array,
         axes: *const c_int,
-        naxes: c_int,
-        low_pad: *const c_int,
-        nlow: c_int,
-        high_pad: *const c_int,
-        nhigh: c_int,
+        axes_num: usize,
+        low_pad_size: *const c_int,
+        low_pad_size_num: usize,
+        high_pad_size: *const c_int,
+        high_pad_size_num: usize,
         val: mlx_array,
+        mode: *const c_char,
         s: mlx_stream,
     ) -> c_int;
 
@@ -551,7 +563,7 @@ extern "C" {
         x: mlx_array,
         dims: c_int,
         traditional: bool,
-        base: mlx_array,
+        base: mlx_optional_float,
         scale: c_float,
         offset: c_int,
         freqs: mlx_array,
@@ -564,8 +576,9 @@ extern "C" {
         keys: mlx_array,
         values: mlx_array,
         scale: c_float,
-        mask: mlx_array,
-        memory_efficient_threshold: c_int,
+        mask_mode: *const c_char,
+        mask_arr: mlx_array,
+        sinks: mlx_array,
         s: mlx_stream,
     ) -> c_int;
 
@@ -597,7 +610,6 @@ extern "C" {
         res: *mut mlx_array,
         logits: mlx_array,
         axis: c_int,
-        num_samples: c_int,
         key: mlx_array,
         s: mlx_stream,
     ) -> c_int;
@@ -642,15 +654,9 @@ extern "C" {
         map: mlx_map_string_to_array,
     ) -> mlx_map_string_to_array_iterator;
     pub fn mlx_map_string_to_array_iterator_next(
+        key: *mut *const c_char,
+        value: *mut mlx_array,
         it: mlx_map_string_to_array_iterator,
-    ) -> bool;
-    pub fn mlx_map_string_to_array_iterator_key(
-        it: mlx_map_string_to_array_iterator,
-        res: *mut mlx_string,
-    ) -> c_int;
-    pub fn mlx_map_string_to_array_iterator_value(
-        it: mlx_map_string_to_array_iterator,
-        res: *mut mlx_array,
     ) -> c_int;
     pub fn mlx_map_string_to_array_iterator_free(
         it: mlx_map_string_to_array_iterator,
@@ -665,7 +671,7 @@ extern "C" {
 
     pub fn mlx_vector_array_new() -> mlx_vector_array;
     pub fn mlx_vector_array_free(vec: mlx_vector_array) -> c_int;
-    pub fn mlx_vector_array_append(vec: mlx_vector_array, arr: mlx_array) -> c_int;
+    pub fn mlx_vector_array_append_value(vec: mlx_vector_array, val: mlx_array) -> c_int;
     pub fn mlx_vector_array_get(res: *mut mlx_array, vec: mlx_vector_array, idx: c_int) -> c_int;
     pub fn mlx_vector_array_size(vec: mlx_vector_array) -> c_int;
 

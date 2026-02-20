@@ -51,6 +51,14 @@ fn main() -> anyhow::Result<()> {
 
     println!("=== Qwen3 TTS Rust Demo ===");
     println!();
+
+    // Initialize MLX backend with GPU (Metal) when using the mlx feature
+    #[cfg(feature = "mlx")]
+    {
+        qwen3_tts::backend::mlx::stream::init_mlx(true);
+        println!("MLX backend initialized (Metal GPU)");
+    }
+
     println!("Loading model from: {}", model_path);
 
     let inference = TTSInference::new(Path::new(model_path), Device::Cpu)?;

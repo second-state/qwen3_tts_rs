@@ -8,7 +8,6 @@
 
 use super::array::MlxArray;
 use super::ffi;
-use super::stream::default_stream;
 use std::collections::HashMap;
 use std::ffi::CString;
 use std::path::Path;
@@ -16,6 +15,9 @@ use std::path::Path;
 /// Load all tensors from a safetensors file.
 ///
 /// Returns a HashMap mapping tensor names to MlxArray values.
+/// Uses a CPU stream for loading because the Metal GPU backend does not
+/// implement `Load::eval_gpu`. MLX will automatically transfer arrays
+/// to GPU when they are used in GPU computations.
 pub fn load_safetensors(path: &Path) -> Result<HashMap<String, MlxArray>, String> {
     let path_str = path.to_str().ok_or("Invalid UTF-8 in path")?;
     let c_path = CString::new(path_str).map_err(|e| format!("Invalid path: {e}"))?;
@@ -23,9 +25,15 @@ pub fn load_safetensors(path: &Path) -> Result<HashMap<String, MlxArray>, String
     let mut data: ffi::mlx_map_string_to_array = std::ptr::null_mut();
     let mut metadata: ffi::mlx_map_string_to_string = std::ptr::null_mut();
 
+    // Use a CPU stream for loading: Load::eval_gpu is not implemented for Metal.
+    let cpu_device = unsafe { ffi::mlx_device_new_type(ffi::mlx_device_type::MLX_CPU, 0) };
+    let cpu_stream = unsafe { ffi::mlx_stream_new_device(cpu_device) };
+    unsafe { ffi::mlx_device_free(cpu_device) };
+
     let status = unsafe {
-        ffi::mlx_load_safetensors(&mut data, &mut metadata, c_path.as_ptr(), default_stream())
+        ffi::mlx_load_safetensors(&mut data, &mut metadata, c_path.as_ptr(), cpu_stream)
     };
+    unsafe { ffi::mlx_stream_free(cpu_stream) };
 
     if status != 0 {
         return Err(format!("Failed to load safetensors from {:?}", path));
@@ -44,36 +52,18 @@ pub fn load_safetensors(path: &Path) -> Result<HashMap<String, MlxArray>, String
     }
 
     loop {
-        let has_next = unsafe { ffi::mlx_map_string_to_array_iterator_next(iter) };
-        if !has_next {
+        let mut key_ptr: *const std::os::raw::c_char = std::ptr::null();
+        let mut arr = MlxArray::empty();
+        let status = unsafe {
+            ffi::mlx_map_string_to_array_iterator_next(&mut key_ptr, &mut arr.ptr, iter)
+        };
+        if status != 0 || key_ptr.is_null() {
             break;
         }
 
-        // Get key
-        let mut key_str = unsafe { ffi::mlx_string_new() };
-        let status = unsafe { ffi::mlx_map_string_to_array_iterator_key(iter, &mut key_str) };
-        if status != 0 || key_str.is_null() {
-            continue;
-        }
-        let key_ptr = unsafe { ffi::mlx_string_data(key_str) };
-        let name = if key_ptr.is_null() {
-            unsafe { ffi::mlx_string_free(key_str) };
-            continue;
-        } else {
-            let name = unsafe { std::ffi::CStr::from_ptr(key_ptr) }
-                .to_string_lossy()
-                .into_owned();
-            unsafe { ffi::mlx_string_free(key_str) };
-            name
-        };
-
-        // Get value
-        let mut arr = MlxArray::empty();
-        let status =
-            unsafe { ffi::mlx_map_string_to_array_iterator_value(iter, &mut arr.ptr) };
-        if status != 0 {
-            continue;
-        }
+        let name = unsafe { std::ffi::CStr::from_ptr(key_ptr) }
+            .to_string_lossy()
+            .into_owned();
 
         result.insert(name, arr);
     }

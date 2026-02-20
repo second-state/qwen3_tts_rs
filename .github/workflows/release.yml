@@ -15,24 +15,26 @@ jobs:
         include:
           - os: ubuntu-latest
             name: Linux x86_64 CPU
+            backend: tch
             suffix: linux-x86_64-cpu
             libtorch-url: https://download.pytorch.org/libtorch/cpu/libtorch-cxx11-abi-shared-with-deps-2.10.0%2Bcpu.zip
             libtorch-archive: libtorch.zip
           - os: ubuntu-latest
             name: Linux x86_64 CUDA
+            backend: tch
             suffix: linux-x86_64-cuda
             libtorch-url: https://download.pytorch.org/libtorch/cu128/libtorch-cxx11-abi-shared-with-deps-2.10.0%2Bcu128.zip
             libtorch-archive: libtorch.zip
           - os: ubuntu-24.04-arm
             name: Linux ARM64 CPU
+            backend: tch
             suffix: linux-aarch64-cpu
             libtorch-url: https://github.com/second-state/libtorch-releases/releases/download/v2.10.0/libtorch-cxx11-abi-aarch64-2.10.0.tar.gz
             libtorch-archive: libtorch.tar.gz
           - os: macos-latest
-            name: macOS ARM64
+            name: macOS ARM64 (MLX)
+            backend: mlx
             suffix: macos-arm64
-            libtorch-url: https://download.pytorch.org/libtorch/cpu/libtorch-macos-arm64-2.10.0.zip
-            libtorch-archive: libtorch.zip
 
     runs-on: ${{ matrix.os }}
     name: Build (${{ matrix.name }})
@@ -40,13 +42,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Init MLX submodule
+        if: matrix.backend == 'mlx'
+        run: git submodule update --init --recursive
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
       - name: Download libtorch
+        if: matrix.backend == 'tch'
         run: curl -Lo ${{ matrix.libtorch-archive }} "${{ matrix.libtorch-url }}"
 
       - name: Extract libtorch
+        if: matrix.backend == 'tch'
         run: |
           if [[ "${{ matrix.libtorch-archive }}" == *.zip ]]; then
             unzip -q ${{ matrix.libtorch-archive }}
@@ -54,17 +62,31 @@ jobs:
             tar xzf ${{ matrix.libtorch-archive }}
           fi
 
-      - name: Build
+      - name: Build (tch)
+        if: matrix.backend == 'tch'
         env:
           LIBTORCH: ${{ github.workspace }}/libtorch
         run: cargo build --release
 
-      - name: Package release
+      - name: Build (MLX)
+        if: matrix.backend == 'mlx'
+        run: cargo build --release --no-default-features --features mlx
+
+      - name: Package release (tch)
+        if: matrix.backend == 'tch'
         run: |
           DIST="qwen3-tts-${{ matrix.suffix }}"
           mkdir -p "$DIST"
           cp target/release/tts target/release/voice_clone "$DIST/"
           cp -r libtorch "$DIST/"
+          tar czf "$DIST.tar.gz" "$DIST"
+
+      - name: Package release (MLX)
+        if: matrix.backend == 'mlx'
+        run: |
+          DIST="qwen3-tts-${{ matrix.suffix }}"
+          mkdir -p "$DIST"
+          cp target/release/tts target/release/voice_clone "$DIST/"
           tar czf "$DIST.tar.gz" "$DIST"
 
       - name: Upload release asset

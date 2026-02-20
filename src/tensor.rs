@@ -829,7 +829,19 @@ impl Tensor {
     }
 
     pub fn expand(&self, size: &[i64], _implicit: bool) -> Self {
-        let shape_i32: Vec<i32> = size.iter().map(|&s| s as i32).collect();
+        // PyTorch expand: -1 means "keep current size for this dimension"
+        let current = self.inner.shape();
+        let shape_i32: Vec<i32> = size
+            .iter()
+            .enumerate()
+            .map(|(i, &s)| {
+                if s == -1 {
+                    current[i]
+                } else {
+                    s as i32
+                }
+            })
+            .collect();
         Tensor::from_mlx(crate::backend::mlx::ops::broadcast_to(
             &self.inner,
             &shape_i32,
@@ -852,15 +864,16 @@ impl Tensor {
     }
 
     pub fn select(&self, dim: i64, index: i64) -> Self {
-        let idx = crate::backend::mlx::array::MlxArray::scalar_i32(index as i32);
+        // Use a 1-d index [index] so take keeps the axis with size 1,
+        // then squeeze removes it. (A scalar 0-d index would already
+        // remove the axis, making the subsequent squeeze fail.)
+        let idx = crate::backend::mlx::array::MlxArray::from_i32(&[index as i32], &[1]);
         let dim = if dim < 0 {
             self.inner.ndim() as i64 + dim
         } else {
             dim
         } as i32;
         let taken = crate::backend::mlx::ops::take(&self.inner, &idx, dim);
-        // Remove the selected dimension
-        crate::backend::mlx::ops::squeeze(&taken, &[dim]);
         Tensor::from_mlx(crate::backend::mlx::ops::squeeze(&taken, &[dim]))
     }
 
@@ -1047,15 +1060,11 @@ impl Tensor {
         let sorted_idx = crate::backend::mlx::ops::argsort(&self.inner, dim);
         // Take the last k indices (largest)
         let n = self.inner.shape_dim(dim);
-        let idx_start = n - k as i32;
-        let starts = vec![0i32; self.inner.ndim() as usize];
-        let mut stops: Vec<i32> = self.inner.shape();
-        stops[dim as usize] = k as i32;
         // For topk, we need to extract the top-k indices from argsort
         // Take last k elements along the sorted dimension
         let ndim = self.inner.ndim() as usize;
         let mut top_starts = vec![0i32; ndim];
-        let mut top_stops = self.inner.shape();
+        let top_stops = self.inner.shape();
         let top_strides = vec![1i32; ndim];
         top_starts[dim as usize] = n - k as i32;
         let top_indices = crate::backend::mlx::ops::slice(&sorted_idx, &top_starts, &top_stops, &top_strides);
@@ -1071,6 +1080,9 @@ impl Tensor {
             -1, // last axis
             num_samples as i32,
         );
+        // random_categorical returns shape [...] (last dim removed).
+        // PyTorch multinomial returns [..., num_samples]. Add the dim back.
+        let result = crate::backend::mlx::ops::expand_dims(&result, &[-1]);
         Tensor::from_mlx(result)
     }
 
@@ -1156,9 +1168,12 @@ impl Tensor {
         groups: i64,
         dilation: &[i64],
     ) -> Self {
-        // Same transposition logic as conv1d
+        // MLX conv_transpose1d expects input [N, L, C_in], weight [C_out, K, C_in].
+        // PyTorch has input [N, C_in, L], weight [C_in, C_out, K].
+        // Input: [N, C, L] -> [N, L, C]
         let input_t = self.transpose(1, 2);
-        let weight_t = weight.transpose(1, 2);
+        // Weight: [C_in, C_out, K] -> [C_out, K, C_in] via permute [1, 2, 0]
+        let weight_t = weight.permute(&[1, 2, 0]);
         let result = crate::backend::mlx::ops::conv_transpose1d(
             &input_t.inner,
             &weight_t.inner,
@@ -1168,6 +1183,7 @@ impl Tensor {
             groups as i32,
         );
         let out = Tensor::from_mlx(result);
+        // Output: [N, L, C] -> [N, C, L]
         let out = out.transpose(1, 2);
         if let Some(b) = bias {
             &out + &b.unsqueeze(-1)
@@ -1203,12 +1219,15 @@ impl Tensor {
         _onesided: bool,
         _return_complex: bool,
     ) -> Self {
-        Tensor::from_mlx(crate::backend::mlx::signal::stft_magnitude(
+        // stft_magnitude returns [n_frames, freq_bins].
+        // Transpose to [freq_bins, n_frames] to match tch STFT output layout.
+        let mag = crate::backend::mlx::signal::stft_magnitude(
             &self.inner,
             n_fft as i32,
             hop_length as i32,
             &window.inner,
-        ))
+        );
+        Tensor::from_mlx(crate::backend::mlx::ops::swapaxes(&mag, 0, 1))
     }
 
     // -- Normalization --
@@ -1274,13 +1293,27 @@ impl Tensor {
 
     // -- Data extraction --
 
-    pub fn int64_value(&self, _indices: &[i64]) -> i64 {
-        // For scalar or single-element access
-        self.inner.item_i64()
+    pub fn int64_value(&self, indices: &[i64]) -> i64 {
+        // Index into the array at the given coordinates, then extract scalar.
+        if indices.is_empty() {
+            return self.inner.item_i64();
+        }
+        let starts: Vec<i32> = indices.iter().map(|&i| i as i32).collect();
+        let stops: Vec<i32> = indices.iter().map(|&i| i as i32 + 1).collect();
+        let strides: Vec<i32> = vec![1; indices.len()];
+        let sliced = crate::backend::mlx::ops::slice(&self.inner, &starts, &stops, &strides);
+        sliced.item_i64()
     }
 
-    pub fn f64_value(&self, _indices: &[i64]) -> f64 {
-        self.inner.item_f32() as f64
+    pub fn f64_value(&self, indices: &[i64]) -> f64 {
+        if indices.is_empty() {
+            return self.inner.item_f32() as f64;
+        }
+        let starts: Vec<i32> = indices.iter().map(|&i| i as i32).collect();
+        let stops: Vec<i32> = indices.iter().map(|&i| i as i32 + 1).collect();
+        let strides: Vec<i32> = vec![1; indices.len()];
+        let sliced = crate::backend::mlx::ops::slice(&self.inner, &starts, &stops, &strides);
+        sliced.item_f32() as f64
     }
 
     pub fn to_vec_f32(&self) -> Vec<f32> {

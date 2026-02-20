@@ -43,7 +43,6 @@ impl Clone for MlxArray {
 
 impl fmt::Debug for MlxArray {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let ndim = self.ndim();
         let shape = self.shape();
         let dtype = self.dtype();
         write!(f, "MlxArray(shape={:?}, dtype={:?})", shape, dtype)
@@ -68,66 +67,58 @@ impl MlxArray {
 
     /// Create array from a float32 slice with the given shape.
     pub fn from_f32(data: &[f32], shape: &[i32]) -> Self {
-        let mut res = Self::empty();
-        let status = unsafe {
+        let ptr = unsafe {
             ffi::mlx_array_new_data(
-                &mut res.ptr,
                 data.as_ptr() as *const _,
                 shape.as_ptr(),
                 shape.len() as i32,
                 ffi::mlx_dtype::MLX_FLOAT32,
             )
         };
-        debug_assert_eq!(status, 0, "mlx_array_new_data failed");
-        res
+        debug_assert!(!ptr.is_null(), "mlx_array_new_data failed");
+        Self::from_raw(ptr)
     }
 
     /// Create array from an i64 slice with the given shape.
     pub fn from_i64(data: &[i64], shape: &[i32]) -> Self {
-        let mut res = Self::empty();
-        let status = unsafe {
+        let ptr = unsafe {
             ffi::mlx_array_new_data(
-                &mut res.ptr,
                 data.as_ptr() as *const _,
                 shape.as_ptr(),
                 shape.len() as i32,
                 ffi::mlx_dtype::MLX_INT64,
             )
         };
-        debug_assert_eq!(status, 0, "mlx_array_new_data failed");
-        res
+        debug_assert!(!ptr.is_null(), "mlx_array_new_data failed");
+        Self::from_raw(ptr)
     }
 
     /// Create array from an i32 slice with the given shape.
     pub fn from_i32(data: &[i32], shape: &[i32]) -> Self {
-        let mut res = Self::empty();
-        let status = unsafe {
+        let ptr = unsafe {
             ffi::mlx_array_new_data(
-                &mut res.ptr,
                 data.as_ptr() as *const _,
                 shape.as_ptr(),
                 shape.len() as i32,
                 ffi::mlx_dtype::MLX_INT32,
             )
         };
-        debug_assert_eq!(status, 0, "mlx_array_new_data failed");
-        res
+        debug_assert!(!ptr.is_null(), "mlx_array_new_data failed");
+        Self::from_raw(ptr)
     }
 
     /// Create array from a bool slice with the given shape.
     pub fn from_bool(data: &[bool], shape: &[i32]) -> Self {
-        let mut res = Self::empty();
-        let status = unsafe {
+        let ptr = unsafe {
             ffi::mlx_array_new_data(
-                &mut res.ptr,
                 data.as_ptr() as *const _,
                 shape.as_ptr(),
                 shape.len() as i32,
                 ffi::mlx_dtype::MLX_BOOL,
             )
         };
-        debug_assert_eq!(status, 0, "mlx_array_new_data failed");
-        res
+        debug_assert!(!ptr.is_null(), "mlx_array_new_data failed");
+        Self::from_raw(ptr)
     }
 
     /// Create a scalar float32 array.
@@ -156,7 +147,7 @@ impl MlxArray {
             ffi::mlx_zeros(
                 &mut res.ptr,
                 shape.as_ptr(),
-                shape.len() as i32,
+                shape.len(),
                 dtype,
                 s,
             );
@@ -172,7 +163,7 @@ impl MlxArray {
             ffi::mlx_ones(
                 &mut res.ptr,
                 shape.as_ptr(),
-                shape.len() as i32,
+                shape.len(),
                 dtype,
                 s,
             );
@@ -196,7 +187,7 @@ impl MlxArray {
             ffi::mlx_full(
                 &mut res.ptr,
                 shape.as_ptr(),
-                shape.len() as i32,
+                shape.len(),
                 val.ptr,
                 dtype,
                 s,
@@ -211,23 +202,27 @@ impl MlxArray {
 
     /// Number of dimensions.
     pub fn ndim(&self) -> i32 {
-        unsafe { ffi::mlx_array_ndim(self.ptr) }
+        unsafe { ffi::mlx_array_ndim(self.ptr) as i32 }
     }
 
     /// Shape along a specific dimension.
     pub fn shape_dim(&self, dim: i32) -> i32 {
-        unsafe { ffi::mlx_array_shape(self.ptr, dim) }
+        let shape_ptr = unsafe { ffi::mlx_array_shape(self.ptr) };
+        assert!(!shape_ptr.is_null(), "shape pointer is null");
+        unsafe { *shape_ptr.offset(dim as isize) }
     }
 
     /// Full shape as a vector.
     pub fn shape(&self) -> Vec<i32> {
         let ndim = self.ndim();
-        (0..ndim).map(|i| self.shape_dim(i)).collect()
+        let shape_ptr = unsafe { ffi::mlx_array_shape(self.ptr) };
+        assert!(!shape_ptr.is_null(), "shape pointer is null");
+        unsafe { std::slice::from_raw_parts(shape_ptr, ndim as usize).to_vec() }
     }
 
     /// Total number of elements.
     pub fn size(&self) -> i32 {
-        unsafe { ffi::mlx_array_size(self.ptr) }
+        unsafe { ffi::mlx_array_size(self.ptr) as i32 }
     }
 
     /// Data type.
@@ -276,19 +271,28 @@ impl MlxArray {
     /// Read a scalar float32 value. Calls eval automatically.
     pub fn item_f32(&self) -> f32 {
         self.eval();
-        unsafe { ffi::mlx_array_item_float32(self.ptr) }
+        let mut val: f32 = 0.0;
+        let status = unsafe { ffi::mlx_array_item_float32(&mut val, self.ptr) };
+        debug_assert_eq!(status, 0, "mlx_array_item_float32 failed");
+        val
     }
 
     /// Read a scalar int64 value. Calls eval automatically.
     pub fn item_i64(&self) -> i64 {
         self.eval();
-        unsafe { ffi::mlx_array_item_int64(self.ptr) }
+        let mut val: i64 = 0;
+        let status = unsafe { ffi::mlx_array_item_int64(&mut val, self.ptr) };
+        debug_assert_eq!(status, 0, "mlx_array_item_int64 failed");
+        val
     }
 
     /// Read a scalar int32 value. Calls eval automatically.
     pub fn item_i32(&self) -> i32 {
         self.eval();
-        unsafe { ffi::mlx_array_item_int32(self.ptr) }
+        let mut val: i32 = 0;
+        let status = unsafe { ffi::mlx_array_item_int32(&mut val, self.ptr) };
+        debug_assert_eq!(status, 0, "mlx_array_item_int32 failed");
+        val
     }
 
     // -----------------------------------------------------------------------

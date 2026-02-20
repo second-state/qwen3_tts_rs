@@ -815,9 +815,40 @@ impl TalkerModel {
     }
 
     /// Predict code 0 from normed hidden states at the last position.
-    fn predict_code_0(&self, normed_hidden: &Tensor, temperature: f64, top_k: i64) -> i64 {
+    fn predict_code_0(
+        &self,
+        normed_hidden: &Tensor,
+        temperature: f64,
+        top_k: i64,
+        repetition_penalty: f64,
+        past_codes: &[i64],
+    ) -> i64 {
         let last_hidden = normed_hidden.select(1, normed_hidden.size()[1] - 1);
-        let logits = self.codec_head.forward(&last_hidden);
+        let mut logits = self.codec_head.forward(&last_hidden);
+
+        // Apply repetition penalty to previously generated codes
+        if repetition_penalty != 1.0 && !past_codes.is_empty() {
+            let logits_data = logits.to_vec_f32();
+            let vocab_size = logits.size()[logits.dim() - 1] as usize;
+            let mut modified = logits_data.clone();
+
+            for &code in past_codes {
+                let idx = code as usize;
+                if idx < vocab_size {
+                    let score = modified[idx];
+                    // Penalize: divide positive logits, multiply negative logits
+                    modified[idx] = if score > 0.0 {
+                        score / repetition_penalty as f32
+                    } else {
+                        score * repetition_penalty as f32
+                    };
+                }
+            }
+
+            logits = Tensor::from_slice_f32(&modified)
+                .reshape(&logits.size())
+                .to_device(self.device);
+        }
 
         if temperature <= 0.0 {
             logits.argmax(-1, false).int64_value(&[0])
@@ -850,7 +881,9 @@ impl TalkerModel {
         eos_code: i64,
         tts_pad_embed: &Tensor,
     ) -> Vec<Vec<i64>> {
+        let repetition_penalty = 1.05; // From generation_config.json
         let mut all_codes = Vec::new();
+        let mut past_code_0s: Vec<i64> = Vec::new();
         let mut full_sequence = input_embeddings.shallow_clone();
 
         for step in 0..max_codes {
@@ -865,8 +898,17 @@ impl TalkerModel {
             // Run through transformer
             let normed_hidden = self.forward_embeds(&full_sequence, Some(&causal_mask));
 
-            // Predict code 0 from main model
-            let code_0 = self.predict_code_0(&normed_hidden, temperature, top_k);
+            // Predict code 0 from main model (with repetition penalty)
+            let code_0 = self.predict_code_0(
+                &normed_hidden,
+                temperature,
+                top_k,
+                repetition_penalty,
+                &past_code_0s,
+            );
+
+            // Track past code 0s for repetition penalty
+            past_code_0s.push(code_0);
 
             // Check EOS on code 0 only
             if code_0 == eos_code {
@@ -894,7 +936,7 @@ impl TalkerModel {
             // Collect all 16 codes
             let mut frame_codes = vec![code_0];
             frame_codes.extend_from_slice(&predictor_codes);
-            all_codes.push(frame_codes.clone());
+            all_codes.push(frame_codes);
 
             // Build next input: sum of all code embeddings + tts_pad (trailing text)
             // Code 0 embedding (from main codec_embedding)

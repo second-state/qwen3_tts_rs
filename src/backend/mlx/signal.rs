@@ -7,7 +7,6 @@
 //! directly, so these are implemented from lower-level ops.
 
 use super::array::MlxArray;
-use super::ffi;
 use super::ops;
 use std::f64::consts::PI;
 
@@ -115,11 +114,9 @@ pub fn stft_magnitude(
     hop_length: i32,
     window: &MlxArray,
 ) -> MlxArray {
-    let signal_len = signal.shape()[0];
-
-    // Pad signal to center the frames
-    let pad_amount = n_fft / 2;
-    let padded = reflection_pad1d(signal, pad_amount, pad_amount);
+    // Caller is responsible for any padding (e.g. center padding).
+    // We operate directly on the provided signal.
+    let padded = signal;
 
     let padded_len = padded.shape()[0];
     let n_frames = (padded_len - n_fft) / hop_length + 1;

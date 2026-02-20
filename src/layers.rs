@@ -123,6 +123,7 @@ impl Linear {
 }
 
 /// Rotary Position Embedding (RoPE).
+#[allow(dead_code)]
 pub struct RotaryEmbedding {
     cos_cache: Tensor,
     sin_cache: Tensor,
@@ -163,19 +164,18 @@ impl RotaryEmbedding {
     }
 
     /// Apply rotary embedding to query and key tensors.
+    #[allow(unused_variables)]
     pub fn forward(&self, q: &Tensor, k: &Tensor, seq_len: i64) -> (Tensor, Tensor) {
         // Use MLX fused RoPE kernel for better performance on Apple Silicon
         #[cfg(feature = "mlx")]
         {
-            // fast_rope expects [batch, seq, heads, head_dim]
-            // Our inputs are [batch, heads, seq, head_dim]
-            let q_t = q.transpose(1, 2);
-            let k_t = k.transpose(1, 2);
-
+            // fast_rope applies RoPE using dim -2 as the sequence dimension.
+            // Our inputs are [batch, heads, seq, head_dim], where dim -2 = seq.
+            // Do NOT transpose — the layout is already correct.
             let base = mlx::array::MlxArray::scalar_f32(self._theta as f32);
 
             let q_rope = Tensor::from_mlx(mlx::ops::fast_rope(
-                q_t.as_mlx(),
+                q.as_mlx(),
                 self.dim as i32,
                 false, // GPT-NeoX style (not traditional)
                 Some(&base),
@@ -183,7 +183,7 @@ impl RotaryEmbedding {
                 0,   // offset
             ));
             let k_rope = Tensor::from_mlx(mlx::ops::fast_rope(
-                k_t.as_mlx(),
+                k.as_mlx(),
                 self.dim as i32,
                 false,
                 Some(&base),
@@ -191,7 +191,7 @@ impl RotaryEmbedding {
                 0,
             ));
 
-            return (q_rope.transpose(1, 2), k_rope.transpose(1, 2));
+            return (q_rope, k_rope);
         }
         #[cfg(not(feature = "mlx"))]
         {
