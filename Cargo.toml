@@ -11,9 +11,9 @@ categories = ["multimedia::audio", "science"]
 exclude = ["models/", "*.wav", ".DS_Store"]
 
 [dependencies]
-# PyTorch bindings via libtorch (0.23 for PyTorch 2.10.0 compatibility)
+# PyTorch bindings via libtorch (0.20 for PyTorch 2.7.1 compatibility)
 # Only used with the tch-backend feature
-tch = { version = "0.23", optional = true }
+tch = { version = "0.20", optional = true }
 
 # Tokenization
 tokenizers = "0.21"

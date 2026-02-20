@@ -17,19 +17,19 @@ jobs:
             name: Linux x86_64 CPU
             backend: tch
             suffix: linux-x86_64-cpu
-            libtorch-url: https://download.pytorch.org/libtorch/cpu/libtorch-cxx11-abi-shared-with-deps-2.10.0%2Bcpu.zip
+            libtorch-url: https://download.pytorch.org/libtorch/cpu/libtorch-cxx11-abi-shared-with-deps-2.7.1%2Bcpu.zip
             libtorch-archive: libtorch.zip
           - os: ubuntu-latest
             name: Linux x86_64 CUDA
             backend: tch
             suffix: linux-x86_64-cuda
-            libtorch-url: https://download.pytorch.org/libtorch/cu128/libtorch-cxx11-abi-shared-with-deps-2.10.0%2Bcu128.zip
+            libtorch-url: https://download.pytorch.org/libtorch/cu128/libtorch-cxx11-abi-shared-with-deps-2.7.1%2Bcu128.zip
             libtorch-archive: libtorch.zip
           - os: ubuntu-24.04-arm
             name: Linux ARM64 CPU
             backend: tch
             suffix: linux-aarch64-cpu
-            libtorch-url: https://github.com/second-state/libtorch-releases/releases/download/v2.10.0/libtorch-cxx11-abi-aarch64-2.10.0.tar.gz
+            libtorch-url: https://github.com/second-state/libtorch-releases/releases/download/v2.7.1/libtorch-cxx11-abi-aarch64-2.7.1.tar.gz
             libtorch-archive: libtorch.tar.gz
           - os: macos-latest
             name: macOS ARM64 (MLX)

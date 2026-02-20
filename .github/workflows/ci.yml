@@ -58,7 +58,7 @@ jobs:
 
       - name: Install PyTorch
         if: matrix.backend == 'tch'
-        run: pip install torch==2.10.0 ${{ matrix.pip-extra-args }}
+        run: pip install torch==2.7.1 ${{ matrix.pip-extra-args }}
 
       - name: Install HuggingFace tools
         run: pip install huggingface_hub transformers

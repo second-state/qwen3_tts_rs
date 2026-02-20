@@ -16,34 +16,34 @@ Choose **one** of the two backends below.
 
 #### Option A: tch-backend (default)
 
-The `tch` crate (v0.23) requires **libtorch 2.10.0**. Download the pre-built library for your platform:
+The `tch` crate (v0.20) requires **libtorch 2.7.1**. Download the pre-built library for your platform:
 
 Linux x86 CPU:
 
 ```bash
-curl -LO https://download.pytorch.org/libtorch/cpu/libtorch-cxx11-abi-shared-with-deps-2.10.0%2Bcpu.zip
-unzip libtorch-cxx11-abi-shared-with-deps-2.10.0+cpu.zip
+curl -LO https://download.pytorch.org/libtorch/cpu/libtorch-cxx11-abi-shared-with-deps-2.7.1%2Bcpu.zip
+unzip libtorch-cxx11-abi-shared-with-deps-2.7.1+cpu.zip
 ```
 
 Linux ARM CPU (download from [second-state/libtorch-releases](https://github.com/second-state/libtorch-releases/releases)):
 
 ```bash
-curl -LO https://github.com/second-state/libtorch-releases/releases/download/v2.10.0/libtorch-cxx11-abi-aarch64-2.10.0.tar.gz
-tar xzf libtorch-cxx11-abi-aarch64-2.10.0.tar.gz
+curl -LO https://github.com/second-state/libtorch-releases/releases/download/v2.7.1/libtorch-cxx11-abi-aarch64-2.7.1.tar.gz
+tar xzf libtorch-cxx11-abi-aarch64-2.7.1.tar.gz
 ```
 
 Linux x86 with CUDA 12.8:
 
 ```bash
-curl -LO https://download.pytorch.org/libtorch/cu128/libtorch-cxx11-abi-shared-with-deps-2.10.0%2Bcu128.zip
-unzip libtorch-cxx11-abi-shared-with-deps-2.10.0+cu128.zip
+curl -LO https://download.pytorch.org/libtorch/cu128/libtorch-cxx11-abi-shared-with-deps-2.7.1%2Bcu128.zip
+unzip libtorch-cxx11-abi-shared-with-deps-2.7.1+cu128.zip
 ```
 
 macOS on Apple Silicon (M-series):
 
 ```bash
-curl -LO https://download.pytorch.org/libtorch/cpu/libtorch-macos-arm64-2.10.0.zip
-unzip libtorch-macos-arm64-2.10.0.zip
+curl -LO https://download.pytorch.org/libtorch/cpu/libtorch-macos-arm64-2.7.1.zip
+unzip libtorch-macos-arm64-2.7.1.zip
 ```
 
 Then set environment variables (add to `~/.zprofile` or `~/.bash_profile` to persist):
@@ -481,7 +481,7 @@ Apache-2.0
 If you already have Python installed, you can use pip-installed PyTorch instead of downloading libtorch separately:
 
 ```bash
-pip install torch==2.10.0
+pip install torch==2.7.1
 export LIBTORCH_USE_PYTORCH=1
 export LD_LIBRARY_PATH=$(python3 -c "import torch; print(torch.__path__[0])")/lib:$LD_LIBRARY_PATH
 ```
