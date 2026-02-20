@@ -175,6 +175,7 @@ impl Clone for Tensor {
 // ===== tch backend implementation =====
 
 #[cfg(feature = "tch-backend")]
+#[allow(missing_docs)]
 impl Tensor {
     /// Wrap a raw tch::Tensor.
     pub fn from_tch(t: tch::Tensor) -> Self {
@@ -632,6 +633,7 @@ impl Tensor {
 // ===== MLX backend implementation =====
 
 #[cfg(feature = "mlx")]
+#[allow(missing_docs)]
 impl Tensor {
     /// Wrap an MlxArray.
     pub fn from_mlx(a: crate::backend::mlx::array::MlxArray) -> Self {

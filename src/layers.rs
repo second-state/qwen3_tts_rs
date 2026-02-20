@@ -127,7 +127,7 @@ pub struct RotaryEmbedding {
     cos_cache: Tensor,
     sin_cache: Tensor,
     dim: i64,
-    theta: f64,
+    _theta: f64,
 }
 
 impl RotaryEmbedding {
@@ -158,7 +158,7 @@ impl RotaryEmbedding {
             cos_cache,
             sin_cache,
             dim,
-            theta,
+            _theta: theta,
         }
     }
 
@@ -172,7 +172,7 @@ impl RotaryEmbedding {
             let q_t = q.transpose(1, 2);
             let k_t = k.transpose(1, 2);
 
-            let base = mlx::array::MlxArray::scalar_f32(self.theta as f32);
+            let base = mlx::array::MlxArray::scalar_f32(self._theta as f32);
 
             let q_rope = Tensor::from_mlx(mlx::ops::fast_rope(
                 q_t.as_mlx(),
