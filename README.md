@@ -25,6 +25,13 @@ curl -LO https://download.pytorch.org/libtorch/cpu/libtorch-cxx11-abi-shared-wit
 unzip libtorch-cxx11-abi-shared-with-deps-2.10.0+cpu.zip
 ```
 
+Linux ARM CPU (download from [second-state/libtorch-releases](https://github.com/second-state/libtorch-releases/releases)):
+
+```bash
+curl -LO https://github.com/second-state/libtorch-releases/releases/download/v2.10.0/libtorch-cxx11-abi-aarch64-2.10.0.tar.gz
+tar xzf libtorch-cxx11-abi-aarch64-2.10.0.tar.gz
+```
+
 Linux x86 with CUDA 12.8:
 
 ```bash
