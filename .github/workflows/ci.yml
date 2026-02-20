@@ -56,6 +56,10 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Install gfortran (ARM64)
+        if: runner.arch == 'ARM64' && runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libgfortran5
+
       - name: Install PyTorch
         if: matrix.backend == 'tch'
         run: pip install torch==2.7.1 ${{ matrix.pip-extra-args }}
