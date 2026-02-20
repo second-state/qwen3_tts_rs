@@ -16,9 +16,7 @@ Choose **one** of the two backends below.
 
 #### Option A: tch-backend (default)
 
-The `tch` crate (v0.23) requires **PyTorch/libtorch 2.10.0**. You can set it up in one of two ways.
-
-**Use pip-installed PyTorch (recommended):**
+The `tch` crate (v0.23) requires **PyTorch/libtorch 2.10.0**:
 
 ```bash
 pip install torch==2.10.0
@@ -26,35 +24,7 @@ export LIBTORCH_USE_PYTORCH=1
 export LD_LIBRARY_PATH=$(python3 -c "import torch; print(torch.__path__[0])")/lib:$LD_LIBRARY_PATH
 ```
 
-**Or download libtorch directly:**
-
-Linux x86 CPU:
-
-```bash
-curl -LO https://download.pytorch.org/libtorch/cpu/libtorch-cxx11-abi-shared-with-deps-2.10.0%2Bcpu.zip
-unzip libtorch-cxx11-abi-shared-with-deps-2.10.0+cpu.zip
-```
-
-Linux x86 with CUDA 12.8:
-
-```bash
-curl -LO https://download.pytorch.org/libtorch/cu128/libtorch-cxx11-abi-shared-with-deps-2.10.0%2Bcu128.zip
-unzip libtorch-cxx11-abi-shared-with-deps-2.10.0+cu128.zip
-```
-
-macOS on Apple Silicon (M-series):
-
-```bash
-curl -LO https://download.pytorch.org/libtorch/cpu/libtorch-macos-arm64-2.10.0.zip
-unzip libtorch-macos-arm64-2.10.0.zip
-```
-
-Then set environment variables (add to `~/.zprofile` or `~/.bash_profile` to persist):
-
-```bash
-export LIBTORCH=$(pwd)/libtorch
-export LD_LIBRARY_PATH=$(pwd)/libtorch/lib:$LD_LIBRARY_PATH
-```
+If you cannot use pip, see [Troubleshooting: Installing libtorch manually](#installing-libtorch-manually) below.
 
 #### Option B: MLX backend (macOS Apple Silicon only)
 
@@ -129,12 +99,6 @@ cargo build --release --no-default-features --features mlx
 This produces the CLI tools in `target/release/`:
 - `tts` — text-to-speech generation
 - `voice_clone` — voice cloning from reference audio
-
-To also build the `test_weights` diagnostic example:
-
-```bash
-cargo build --examples --release
-```
 
 ## Run
 
@@ -215,14 +179,6 @@ Sample reference audio files are provided in the `reference_audio/` directory.
 When a reference text transcript is provided as the 5th argument, ICL (In-Context Learning) mode is used, which encodes the reference audio into codec tokens and conditions generation on both the speaker embedding and the reference audio/text. This typically produces higher fidelity voice cloning compared to x-vector only mode.
 
 Output is written to `output_voice_clone.wav`.
-
-### Test Weight Loading
-
-Verify that model weights load correctly:
-
-```bash
-./target/release/examples/test_weights models/Qwen3-TTS-12Hz-0.6B-CustomVoice
-```
 
 ### Available speakers (CustomVoice 0.6B)
 
@@ -488,6 +444,49 @@ Key components:
 ## License
 
 Apache-2.0
+
+## Troubleshooting
+
+### Installing libtorch manually
+
+If you cannot use `pip install torch`, download libtorch directly:
+
+Linux x86 CPU:
+
+```bash
+curl -LO https://download.pytorch.org/libtorch/cpu/libtorch-cxx11-abi-shared-with-deps-2.10.0%2Bcpu.zip
+unzip libtorch-cxx11-abi-shared-with-deps-2.10.0+cpu.zip
+```
+
+Linux x86 with CUDA 12.8:
+
+```bash
+curl -LO https://download.pytorch.org/libtorch/cu128/libtorch-cxx11-abi-shared-with-deps-2.10.0%2Bcu128.zip
+unzip libtorch-cxx11-abi-shared-with-deps-2.10.0+cu128.zip
+```
+
+macOS on Apple Silicon (M-series):
+
+```bash
+curl -LO https://download.pytorch.org/libtorch/cpu/libtorch-macos-arm64-2.10.0.zip
+unzip libtorch-macos-arm64-2.10.0.zip
+```
+
+Then set environment variables (add to `~/.zprofile` or `~/.bash_profile` to persist):
+
+```bash
+export LIBTORCH=$(pwd)/libtorch
+export LD_LIBRARY_PATH=$(pwd)/libtorch/lib:$LD_LIBRARY_PATH
+```
+
+### Test weight loading
+
+Verify that model weights load correctly by building and running the `test_weights` diagnostic example:
+
+```bash
+cargo build --examples --release
+./target/release/examples/test_weights models/Qwen3-TTS-12Hz-0.6B-CustomVoice
+```
 
 ## Credits
 
