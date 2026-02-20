@@ -3,30 +3,30 @@
 [![Crates.io](https://img.shields.io/crates/v/qwen3_tts.svg)](https://crates.io/crates/qwen3_tts)
 [![License](https://img.shields.io/crates/l/qwen3_tts.svg)](https://github.com/juntao/qwen3_tts_rs/blob/main/LICENSE)
 
-A Rust implementation of the Qwen3 Text-to-Speech (TTS) model inference, using the [tch](https://github.com/LaurentMazare/tch-rs) crate for PyTorch/libtorch bindings.
+A Rust implementation of the Qwen3 Text-to-Speech (TTS) model inference with two backend options:
+
+- **tch-backend** (default) — uses [tch](https://github.com/LaurentMazare/tch-rs) / PyTorch libtorch. Works on Linux (CPU/CUDA) and macOS.
+- **mlx** — uses [Apple MLX](https://github.com/ml-explore/mlx) via mlx-c for native Metal GPU acceleration on Apple Silicon. No libtorch required.
 
 ## Prerequisites
 
-### Install libtorch
+### Backend setup
+
+Choose **one** of the two backends below.
+
+#### Option A: tch-backend (default)
 
 The `tch` crate (v0.23) requires **PyTorch/libtorch 2.10.0**. You can set it up in one of two ways.
 
-#### Option 1: Use pip-installed PyTorch (recommended)
-
-Install PyTorch via pip and point the build system to it:
+**Use pip-installed PyTorch (recommended):**
 
 ```bash
 pip install torch==2.10.0
-```
-
-Then set the following environment variables before building:
-
-```bash
 export LIBTORCH_USE_PYTORCH=1
 export LD_LIBRARY_PATH=$(python3 -c "import torch; print(torch.__path__[0])")/lib:$LD_LIBRARY_PATH
 ```
 
-#### Option 2: Download libtorch directly
+**Or download libtorch directly:**
 
 Linux x86 CPU:
 
@@ -55,6 +55,21 @@ Then set environment variables (add to `~/.zprofile` or `~/.bash_profile` to per
 export LIBTORCH=$(pwd)/libtorch
 export LD_LIBRARY_PATH=$(pwd)/libtorch/lib:$LD_LIBRARY_PATH
 ```
+
+#### Option B: MLX backend (macOS Apple Silicon only)
+
+The MLX backend requires:
+- Apple Silicon Mac (M1/M2/M3/M4)
+- Xcode (full installation, not just Command Line Tools — needed for the Metal shader compiler)
+- CMake (`brew install cmake`)
+
+Initialize the mlx-c submodule:
+
+```bash
+git submodule update --init --recursive
+```
+
+No libtorch or PyTorch installation is needed.
 
 ### Download the model
 
@@ -96,7 +111,19 @@ for model in ['Qwen3-TTS-12Hz-0.6B-CustomVoice', 'Qwen3-TTS-12Hz-0.6B-Base', 'Qw
 ```bash
 git clone https://github.com/juntao/qwen3_tts_rs.git
 cd qwen3_tts_rs
+```
+
+**tch-backend (default):**
+
+```bash
 cargo build --release
+```
+
+**MLX backend:**
+
+```bash
+git submodule update --init --recursive
+cargo build --release --no-default-features --features mlx
 ```
 
 ## Run
@@ -106,7 +133,11 @@ cargo build --release
 Generate speech from text:
 
 ```bash
+# tch-backend (default)
 cargo run --example tts_demo --release -- <model_path> [text] [speaker] [language] [instruction]
+
+# MLX backend
+cargo run --example tts_demo --release --no-default-features --features mlx -- <model_path> [text] [speaker] [language] [instruction]
 ```
 
 Example:
@@ -204,7 +235,13 @@ Add `qwen3_tts` as a dependency in your `Cargo.toml`:
 ```toml
 [dependencies]
 qwen3_tts = "0.1"
-tch = "0.23"
+```
+
+By default this uses the tch-backend. To use MLX instead:
+
+```toml
+[dependencies]
+qwen3_tts = { version = "0.1", default-features = false, features = ["mlx"] }
 ```
 
 ### Named Characters (CustomVoice)
@@ -214,8 +251,8 @@ Generate speech using a predefined speaker voice:
 ```rust
 use qwen3_tts::audio::write_wav_file;
 use qwen3_tts::inference::TTSInference;
+use qwen3_tts::tensor::Device;
 use std::path::Path;
-use tch::Device;
 
 fn main() -> anyhow::Result<()> {
     let inference = TTSInference::new(
@@ -255,7 +292,7 @@ The 1.7B CustomVoice model supports instruction control to modulate voice charac
 use qwen3_tts::audio::write_wav_file;
 use qwen3_tts::inference::TTSInference;
 use std::path::Path;
-use tch::Device;
+use qwen3_tts::tensor::Device;
 
 fn main() -> anyhow::Result<()> {
     let inference = TTSInference::new(
@@ -301,7 +338,7 @@ use qwen3_tts::audio::{load_wav_file, resample, write_wav_file};
 use qwen3_tts::inference::TTSInference;
 use qwen3_tts::speaker_encoder::SpeakerEncoder;
 use std::path::Path;
-use tch::Device;
+use qwen3_tts::tensor::Device;
 
 fn main() -> anyhow::Result<()> {
     let device = Device::Cpu;
@@ -346,7 +383,7 @@ use qwen3_tts::audio_encoder::AudioEncoder;
 use qwen3_tts::inference::TTSInference;
 use qwen3_tts::speaker_encoder::SpeakerEncoder;
 use std::path::Path;
-use tch::Device;
+use qwen3_tts::tensor::Device;
 
 fn main() -> anyhow::Result<()> {
     let device = Device::Cpu;
@@ -437,7 +474,8 @@ Key components:
 
 ## Dependencies
 
-- **tch** (0.23): PyTorch/libtorch bindings for tensor ops and neural network inference
+- **tch** (0.23, optional): PyTorch/libtorch bindings — used by the `tch-backend` feature (default)
+- **mlx-c** (submodule, optional): Apple MLX C bindings — used by the `mlx` feature
 - **tokenizers** (0.21): HuggingFace tokenizers for BPE text tokenization
 - **hound**: WAV file reading/writing
 - **serde/serde_json**: Configuration deserialization
