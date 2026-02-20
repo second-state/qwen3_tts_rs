@@ -1,0 +1,73 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            name: Linux x86_64 CPU
+            suffix: linux-x86_64-cpu
+            libtorch-url: https://download.pytorch.org/libtorch/cpu/libtorch-cxx11-abi-shared-with-deps-2.10.0%2Bcpu.zip
+            libtorch-archive: libtorch.zip
+          - os: ubuntu-latest
+            name: Linux x86_64 CUDA
+            suffix: linux-x86_64-cuda
+            libtorch-url: https://download.pytorch.org/libtorch/cu128/libtorch-cxx11-abi-shared-with-deps-2.10.0%2Bcu128.zip
+            libtorch-archive: libtorch.zip
+          - os: ubuntu-24.04-arm
+            name: Linux ARM64 CPU
+            suffix: linux-aarch64-cpu
+            libtorch-url: https://github.com/second-state/libtorch-releases/releases/download/v2.10.0/libtorch-cxx11-abi-aarch64-2.10.0.tar.gz
+            libtorch-archive: libtorch.tar.gz
+          - os: macos-latest
+            name: macOS ARM64
+            suffix: macos-arm64
+            libtorch-url: https://download.pytorch.org/libtorch/cpu/libtorch-macos-arm64-2.10.0.zip
+            libtorch-archive: libtorch.zip
+
+    runs-on: ${{ matrix.os }}
+    name: Build (${{ matrix.name }})
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Download libtorch
+        run: curl -Lo ${{ matrix.libtorch-archive }} "${{ matrix.libtorch-url }}"
+
+      - name: Extract libtorch
+        run: |
+          if [[ "${{ matrix.libtorch-archive }}" == *.zip ]]; then
+            unzip -q ${{ matrix.libtorch-archive }}
+          else
+            tar xzf ${{ matrix.libtorch-archive }}
+          fi
+
+      - name: Build
+        env:
+          LIBTORCH: ${{ github.workspace }}/libtorch
+        run: cargo build --release
+
+      - name: Package release
+        run: |
+          DIST="qwen3-tts-${{ matrix.suffix }}"
+          mkdir -p "$DIST"
+          cp target/release/tts target/release/voice_clone "$DIST/"
+          cp -r libtorch "$DIST/"
+          tar czf "$DIST.tar.gz" "$DIST"
+
+      - name: Upload release asset
+        uses: softprops/action-gh-release@v2
+        with:
+          files: qwen3-tts-${{ matrix.suffix }}.tar.gz
