@@ -406,9 +406,7 @@ pub struct CausalTransConv1d {
     bias: Option<Tensor>,
     /// Stride (upsample factor)
     stride: i64,
-    /// Left padding to trim
-    left_pad: i64,
-    /// Right padding to trim
+    /// Right padding to trim (causal: no left trim)
     right_pad: i64,
 }
 
@@ -416,15 +414,12 @@ impl CausalTransConv1d {
     /// Create from weights.
     pub fn from_weights(weight: Tensor, bias: Option<Tensor>, stride: i64) -> Self {
         let kernel_size = weight.size()[2];
-        let pad = kernel_size - stride;
-        let left_pad = (pad as f64 / 2.0).ceil() as i64;
-        let right_pad = left_pad;
+        let right_pad = kernel_size - stride;
 
         Self {
             weight,
             bias,
             stride,
-            left_pad,
             right_pad,
         }
     }
@@ -441,12 +436,10 @@ impl CausalTransConv1d {
             &[1],
         );
 
-        // Trim padding
+        // Trim right padding (causal: no left trim)
         let length = out.size()[2];
-        if self.right_pad > 0 && length > self.left_pad + self.right_pad {
-            out.narrow(2, self.left_pad, length - self.left_pad - self.right_pad)
-        } else if self.left_pad > 0 && length > self.left_pad {
-            out.narrow(2, self.left_pad, length - self.left_pad)
+        if self.right_pad > 0 && length > self.right_pad {
+            out.narrow(2, 0, length - self.right_pad)
         } else {
             out
         }
