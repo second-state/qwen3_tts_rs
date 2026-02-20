@@ -80,7 +80,6 @@ jobs:
           DIST="qwen3-tts-${{ matrix.suffix }}"
           mkdir -p "$DIST"
           cp target/release/tts target/release/voice_clone "$DIST/"
-          cp -r libtorch "$DIST/"
           tar czf "$DIST.tar.gz" "$DIST"
 
       - name: Package release (MLX)
