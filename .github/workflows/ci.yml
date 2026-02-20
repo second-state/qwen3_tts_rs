@@ -56,10 +56,6 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install gfortran (ARM64)
-        if: runner.arch == 'ARM64' && runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libgfortran5
-
       - name: Install PyTorch
         if: matrix.backend == 'tch'
         run: pip install torch==2.7.1 ${{ matrix.pip-extra-args }}
@@ -74,6 +70,12 @@ jobs:
       - name: Set library path (macOS)
         if: runner.os == 'macOS' && matrix.backend == 'tch'
         run: echo "DYLD_LIBRARY_PATH=$(python3 -c 'import torch; print(torch.__path__[0])')/lib:$DYLD_LIBRARY_PATH" >> "$GITHUB_ENV"
+
+      - name: Set linker rpath-link (ARM64 Linux)
+        if: runner.arch == 'ARM64' && runner.os == 'Linux' && matrix.backend == 'tch'
+        run: |
+          TORCH_LIBS=$(python3 -c "import torch, pathlib; print(pathlib.Path(torch.__path__[0]).parent / 'torch.libs')")
+          echo "RUSTFLAGS=-C link-arg=-Wl,-rpath-link,$TORCH_LIBS" >> "$GITHUB_ENV"
 
       - name: Build (tch)
         if: matrix.backend == 'tch'
