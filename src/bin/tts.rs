@@ -1,21 +1,21 @@
 // Copyright 2026 Claude Code on behalf of Michael Yuan.
 // SPDX-License-Identifier: Apache-2.0
 
-//! Demo: Generate speech from text using Qwen3 TTS.
+//! Generate speech from text using Qwen3 TTS.
 //!
 //! Usage:
-//!   cargo run --example tts_demo -- <model_path> [text] [speaker] [language] [instruction]
+//!   tts <model_path> [text] [speaker] [language] [instruction]
 //!
 //! Example (basic):
-//!   cargo run --example tts_demo -- ./models/Qwen3-TTS-12Hz-0.6B-CustomVoice "Hello, world!" Vivian english
+//!   tts ./models/Qwen3-TTS-12Hz-0.6B-CustomVoice "Hello, world!" Vivian english
 //!
 //! Example (with instruction control, requires 1.7B model):
-//!   cargo run --example tts_demo -- ./models/Qwen3-TTS-12Hz-1.7B-CustomVoice "This is urgent news!" Vivian english "Speak in an urgent and excited voice"
+//!   tts ./models/Qwen3-TTS-12Hz-1.7B-CustomVoice "This is urgent news!" Vivian english "Speak in an urgent and excited voice"
 
 use qwen3_tts::audio::write_wav_file;
 use qwen3_tts::inference::TTSInference;
 use std::path::Path;
-use tch::Device;
+use qwen3_tts::tensor::Device;
 
 fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().collect();
@@ -51,6 +51,14 @@ fn main() -> anyhow::Result<()> {
 
     println!("=== Qwen3 TTS Rust Demo ===");
     println!();
+
+    // Initialize MLX backend with GPU (Metal) when using the mlx feature
+    #[cfg(feature = "mlx")]
+    {
+        qwen3_tts::backend::mlx::stream::init_mlx(true);
+        println!("MLX backend initialized (Metal GPU)");
+    }
+
     println!("Loading model from: {}", model_path);
 
     let inference = TTSInference::new(Path::new(model_path), Device::Cpu)?;

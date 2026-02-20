@@ -8,7 +8,7 @@
 
 use crate::error::{Qwen3TTSError, Result};
 use std::collections::HashMap;
-use tch::{Device, Kind, Tensor};
+use crate::tensor::{DType, Device, Tensor};
 
 /// Configuration for the vocoder decoder.
 #[derive(Debug, Clone)]
@@ -100,7 +100,7 @@ impl EuclideanCodebook {
         let embedding = &self.embedding_sum / &usage;
 
         // Lookup embeddings for codes using F.embedding
-        Tensor::embedding(&embedding, &codes.to_kind(Kind::Int64), -1, false, false)
+        Tensor::embedding(&embedding, &codes.to_dtype(DType::Int64))
     }
 }
 
@@ -206,7 +206,7 @@ impl ResidualVectorQuantization {
             256
         };
 
-        let mut quantized = Tensor::zeros([batch, out_dim, seq_len], (Kind::Float, codes.device()));
+        let mut quantized = Tensor::zeros(&[batch, out_dim, seq_len], DType::Float32, codes.device());
 
         for (idx, layer) in self.layers.iter().enumerate() {
             let layer_codes = codes.select(0, idx as i64);
@@ -274,9 +274,9 @@ impl ResidualVectorQuantizer {
             let batch = quantized.size()[0];
             let seq_len = quantized.size()[2];
             let quantized = quantized.transpose(1, 2).contiguous(); // [batch, seq_len, dim]
-            let quantized = quantized.view([-1, quantized.size()[2]]); // [batch*seq_len, dim]
+            let quantized = quantized.view(&[-1, quantized.size()[2]]); // [batch*seq_len, dim]
             let out = quantized.matmul(&proj.transpose(0, 1)); // [batch*seq_len, output_dim]
-            out.view([batch, seq_len, -1]).transpose(1, 2) // [batch, output_dim, seq_len]
+            out.view(&[batch, seq_len, -1]).transpose(1, 2) // [batch, output_dim, seq_len]
         } else {
             quantized
         }
@@ -385,14 +385,14 @@ impl CausalConv1d {
     /// Forward pass with causal padding.
     pub fn forward(&self, x: &Tensor) -> Tensor {
         // Apply causal padding (left-side only)
-        let padded = x.constant_pad_nd([self.padding, 0]);
+        let padded = x.constant_pad_nd(&[self.padding, 0]);
 
         padded.conv1d(
             &self.weight,
             self.bias.as_ref(),
-            [self.stride],
-            [0],
-            [self.dilation],
+            &[self.stride],
+            &[0],
+            &[self.dilation],
             self.groups,
         )
     }
@@ -406,9 +406,7 @@ pub struct CausalTransConv1d {
     bias: Option<Tensor>,
     /// Stride (upsample factor)
     stride: i64,
-    /// Left padding to trim
-    left_pad: i64,
-    /// Right padding to trim
+    /// Right padding to trim (causal: no left trim)
     right_pad: i64,
 }
 
@@ -416,15 +414,12 @@ impl CausalTransConv1d {
     /// Create from weights.
     pub fn from_weights(weight: Tensor, bias: Option<Tensor>, stride: i64) -> Self {
         let kernel_size = weight.size()[2];
-        let pad = kernel_size - stride;
-        let left_pad = (pad as f64 / 2.0).ceil() as i64;
-        let right_pad = left_pad;
+        let right_pad = kernel_size - stride;
 
         Self {
             weight,
             bias,
             stride,
-            left_pad,
             right_pad,
         }
     }
@@ -434,19 +429,17 @@ impl CausalTransConv1d {
         let out = x.conv_transpose1d(
             &self.weight,
             self.bias.as_ref(),
-            [self.stride],
-            [0],
-            [0],
+            &[self.stride],
+            &[0],
+            &[0],
             1,
-            [1],
+            &[1],
         );
 
-        // Trim padding
+        // Trim right padding (causal: no left trim)
         let length = out.size()[2];
-        if self.right_pad > 0 && length > self.left_pad + self.right_pad {
-            out.narrow(2, self.left_pad, length - self.left_pad - self.right_pad)
-        } else if self.left_pad > 0 && length > self.left_pad {
-            out.narrow(2, self.left_pad, length - self.left_pad)
+        if self.right_pad > 0 && length > self.right_pad {
+            out.narrow(2, 0, length - self.right_pad)
         } else {
             out
         }
@@ -472,8 +465,8 @@ impl VocoderRMSNorm {
     /// Forward pass.
     pub fn forward(&self, x: &Tensor) -> Tensor {
         let variance = x
-            .pow_tensor_scalar(2)
-            .mean_dim(&[-1i64][..], true, Kind::Float);
+            .pow_scalar(2.0)
+            .mean_dim(&[-1], true);
         let x_normed = x * (variance + self.eps).rsqrt();
         &self.weight * x_normed
     }
@@ -492,7 +485,7 @@ impl VocoderRotaryEmbedding {
         let inv_freq: Vec<f32> = (0..half_dim)
             .map(|i| 1.0 / (theta as f32).powf(2.0 * i as f32 / dim as f32))
             .collect();
-        let inv_freq = Tensor::from_slice(&inv_freq).to_device(device);
+        let inv_freq = Tensor::from_slice_f32(&inv_freq).to_device(device);
 
         Self {
             inv_freq,
@@ -503,12 +496,12 @@ impl VocoderRotaryEmbedding {
     /// Compute cos and sin for given sequence length.
     pub fn forward(&self, seq_len: i64, device: Device) -> (Tensor, Tensor) {
         let positions: Vec<f32> = (0..seq_len).map(|i| i as f32).collect();
-        let positions = Tensor::from_slice(&positions)
+        let positions = Tensor::from_slice_f32(&positions)
             .to_device(device)
             .unsqueeze(1);
 
         let freqs = positions.matmul(&self.inv_freq.unsqueeze(0));
-        let emb = Tensor::cat(&[&freqs, &freqs], -1);
+        let emb = Tensor::cat(&[freqs.clone(), freqs], -1);
 
         (emb.cos(), emb.sin())
     }
@@ -521,7 +514,7 @@ fn apply_rotary_pos_emb(q: &Tensor, k: &Tensor, cos: &Tensor, sin: &Tensor) -> (
         let dim = *size.last().unwrap();
         let x1 = x.narrow(-1, 0, dim / 2);
         let x2 = x.narrow(-1, dim / 2, dim / 2);
-        Tensor::cat(&[&(-&x2), &x1], -1)
+        Tensor::cat(&[x2.neg(), x1], -1)
     };
 
     // cos and sin: [seq_len, head_dim]
@@ -615,7 +608,9 @@ impl VocoderAttention {
 
     /// Forward pass.
     pub fn forward(&self, hidden_states: &Tensor, cos: &Tensor, sin: &Tensor) -> Tensor {
-        let (batch, seq_len, _) = hidden_states.size3().unwrap();
+        let s = hidden_states.size();
+        let batch = s[0];
+        let seq_len = s[1];
 
         // Project to q, k, v
         let q = hidden_states.matmul(&self.q_proj.transpose(0, 1));
@@ -624,13 +619,13 @@ impl VocoderAttention {
 
         // Reshape to [batch, num_heads, seq_len, head_dim]
         let q = q
-            .view([batch, seq_len, self.num_heads, self.head_dim])
+            .view(&[batch, seq_len, self.num_heads, self.head_dim])
             .transpose(1, 2);
         let k = k
-            .view([batch, seq_len, self.num_heads, self.head_dim])
+            .view(&[batch, seq_len, self.num_heads, self.head_dim])
             .transpose(1, 2);
         let v = v
-            .view([batch, seq_len, self.num_heads, self.head_dim])
+            .view(&[batch, seq_len, self.num_heads, self.head_dim])
             .transpose(1, 2);
 
         // Apply rotary embeddings
@@ -641,11 +636,11 @@ impl VocoderAttention {
 
         // Create causal mask with sliding window using masked_fill to avoid NaN
         let invalid =
-            Tensor::ones([seq_len, seq_len], (Kind::Bool, hidden_states.device())).triu(1);
+            Tensor::ones(&[seq_len, seq_len], DType::Bool, hidden_states.device()).triu(1);
 
         // Apply sliding window: also mask positions more than sliding_window steps back
         let invalid = if self.sliding_window > 0 && self.sliding_window < seq_len {
-            let too_far = Tensor::ones([seq_len, seq_len], (Kind::Bool, hidden_states.device()))
+            let too_far = Tensor::ones(&[seq_len, seq_len], DType::Bool, hidden_states.device())
                 .tril(-(self.sliding_window));
             invalid.logical_or(&too_far)
         } else {
@@ -653,19 +648,19 @@ impl VocoderAttention {
         };
 
         // Apply mask: set invalid positions to -inf
-        let attn_mask = Tensor::zeros([seq_len, seq_len], (Kind::Float, hidden_states.device()));
+        let attn_mask = Tensor::zeros(&[seq_len, seq_len], DType::Float32, hidden_states.device());
         let attn_mask = attn_mask.masked_fill(&invalid, f64::NEG_INFINITY);
         let attn_weights = attn_weights + attn_mask.unsqueeze(0).unsqueeze(0);
 
         // Softmax and apply to values
-        let attn_weights = attn_weights.softmax(-1, Kind::Float);
+        let attn_weights = attn_weights.softmax(-1);
         let attn_output = attn_weights.matmul(&v);
 
         // Reshape back and project output
         let attn_output = attn_output
             .transpose(1, 2)
             .contiguous()
-            .view([batch, seq_len, -1]);
+            .view(&[batch, seq_len, -1]);
         attn_output.matmul(&self.o_proj.transpose(0, 1))
     }
 }
@@ -988,14 +983,13 @@ impl ConvNeXtBlock {
         let hidden = self.dwconv.forward(x);
         let hidden = hidden.transpose(1, 2);
         let hidden = hidden.layer_norm(
-            [self.dim],
+            &[self.dim],
             Some(&self.norm_weight),
             Some(&self.norm_bias),
             1e-6,
-            true,
         );
         let hidden = hidden.matmul(&self.pwconv1_weight.transpose(0, 1)) + &self.pwconv1_bias;
-        let hidden = hidden.gelu("tanh");
+        let hidden = hidden.gelu();
         let hidden = hidden.matmul(&self.pwconv2_weight.transpose(0, 1)) + &self.pwconv2_bias;
         let hidden = &self.gamma * hidden;
         let hidden = hidden.transpose(1, 2);
@@ -1328,8 +1322,7 @@ pub fn load_vocoder_weights<P: AsRef<std::path::Path>>(
         )));
     }
 
-    let tensors = Tensor::read_safetensors(path)
-        .map_err(|e| Qwen3TTSError::ModelLoad(format!("Failed to load safetensors: {}", e)))?;
+    let tensors = Tensor::load_safetensors(path)?;
 
     let mut weights = HashMap::new();
     for (name, tensor) in tensors {

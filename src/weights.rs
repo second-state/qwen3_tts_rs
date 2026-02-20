@@ -1,50 +1,64 @@
 // Copyright 2026 Claude Code on behalf of Michael Yuan.
 // SPDX-License-Identifier: Apache-2.0
 
-//! Model weight loading from safetensors format using tch.
+//! Model weight loading from safetensors format.
 //!
 //! This module provides utilities for loading pre-trained weights
 //! from HuggingFace safetensors format.
 
 use crate::error::{Qwen3TTSError, Result};
+use crate::tensor::{Device, Tensor};
+use std::collections::HashMap;
 use std::path::Path;
-use tch::{nn, Device, Tensor};
 
-/// Load model weights from a safetensors file into a VarStore.
-pub fn load_safetensors(vs: &mut nn::VarStore, path: &Path) -> Result<()> {
-    vs.load(path)?;
-    Ok(())
+/// Load all tensors from a safetensors file.
+pub fn load_all_tensors(path: &Path, device: Device) -> Result<Vec<(String, Tensor)>> {
+    let tensors = Tensor::load_safetensors(path)?;
+    let result: Vec<(String, Tensor)> = tensors
+        .into_iter()
+        .map(|(name, tensor)| (name, tensor.to_device(device)))
+        .collect();
+    Ok(result)
 }
 
 /// Load a single tensor from a safetensors file.
 pub fn load_tensor(path: &Path, tensor_name: &str, device: Device) -> Result<Tensor> {
-    let tensors = tch::Tensor::read_safetensors(path)?;
-
+    let tensors = Tensor::load_safetensors(path)?;
     for (name, tensor) in tensors {
         if name == tensor_name {
             return Ok(tensor.to_device(device));
         }
     }
-
     Err(Qwen3TTSError::ModelLoad(format!(
         "Tensor '{}' not found in {:?}",
         tensor_name, path
     )))
 }
 
-/// Load all tensors from a safetensors file.
-pub fn load_all_tensors(path: &Path, device: Device) -> Result<Vec<(String, Tensor)>> {
-    let tensors = tch::Tensor::read_safetensors(path)?;
-
-    let result: Vec<(String, Tensor)> = tensors
+/// Load all tensors into a HashMap.
+pub fn load_weights_map(path: &Path, device: Device) -> Result<HashMap<String, Tensor>> {
+    let tensors = Tensor::load_safetensors(path)?;
+    let map: HashMap<String, Tensor> = tensors
         .into_iter()
         .map(|(name, tensor)| (name, tensor.to_device(device)))
         .collect();
-
-    Ok(result)
+    Ok(map)
 }
 
-/// Container for Qwen3 TTS model weights.
+// ---- tch-backend specific types ----
+
+#[cfg(feature = "tch-backend")]
+use tch::nn;
+
+/// Load model weights from a safetensors file into a VarStore.
+#[cfg(feature = "tch-backend")]
+pub fn load_safetensors(vs: &mut nn::VarStore, path: &Path) -> Result<()> {
+    vs.load(path)?;
+    Ok(())
+}
+
+/// Container for Qwen3 TTS model weights (tch backend).
+#[cfg(feature = "tch-backend")]
 pub struct Qwen3TTSWeights {
     /// Path to the model directory
     pub model_path: std::path::PathBuf,
@@ -54,12 +68,12 @@ pub struct Qwen3TTSWeights {
     pub vs: nn::VarStore,
 }
 
+#[cfg(feature = "tch-backend")]
 impl Qwen3TTSWeights {
     /// Load model weights from a directory.
     pub fn load(model_path: &Path, device: Device) -> Result<Self> {
-        let mut vs = nn::VarStore::new(device);
+        let mut vs = nn::VarStore::new(device.into());
 
-        // Load main model weights
         let model_safetensors = model_path.join("model.safetensors");
         if model_safetensors.exists() {
             vs.load(&model_safetensors)?;
@@ -74,7 +88,10 @@ impl Qwen3TTSWeights {
 
     /// Get a tensor by name from the VarStore.
     pub fn get(&self, name: &str) -> Option<Tensor> {
-        self.vs.variables().get(name).map(|t| t.shallow_clone())
+        self.vs
+            .variables()
+            .get(name)
+            .map(|t| Tensor::from_tch(t.shallow_clone()))
     }
 
     /// Get the root path for the model.
@@ -83,7 +100,8 @@ impl Qwen3TTSWeights {
     }
 }
 
-/// Speech tokenizer weights.
+/// Speech tokenizer weights (tch backend).
+#[cfg(feature = "tch-backend")]
 pub struct SpeechTokenizerWeights {
     /// Path to the speech tokenizer directory
     pub tokenizer_path: std::path::PathBuf,
@@ -93,13 +111,13 @@ pub struct SpeechTokenizerWeights {
     pub vs: nn::VarStore,
 }
 
+#[cfg(feature = "tch-backend")]
 impl SpeechTokenizerWeights {
     /// Load speech tokenizer weights from a directory.
     pub fn load(model_path: &Path, device: Device) -> Result<Self> {
         let tokenizer_path = model_path.join("speech_tokenizer");
-        let mut vs = nn::VarStore::new(device);
+        let mut vs = nn::VarStore::new(device.into());
 
-        // Load speech tokenizer weights
         let tokenizer_safetensors = tokenizer_path.join("model.safetensors");
         if tokenizer_safetensors.exists() {
             vs.load(&tokenizer_safetensors)?;
@@ -120,13 +138,13 @@ impl SpeechTokenizerWeights {
 
 /// Print summary of loaded weights.
 pub fn print_weight_summary(path: &Path) -> Result<()> {
-    let tensors = tch::Tensor::read_safetensors(path)?;
+    let tensors = Tensor::load_safetensors(path)?;
 
     println!("Loaded {} tensors from {:?}", tensors.len(), path);
     println!("First 20 tensors:");
 
     for (i, (name, tensor)) in tensors.iter().take(20).enumerate() {
-        let size: Vec<i64> = tensor.size();
+        let size = tensor.size();
         let kind = tensor.kind();
         println!("  {}: {} {:?} {:?}", i, name, size, kind);
     }

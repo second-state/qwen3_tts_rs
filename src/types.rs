@@ -4,7 +4,7 @@
 //! Common types and data structures for Qwen3 TTS.
 
 use serde::{Deserialize, Serialize};
-use tch::Tensor;
+use crate::tensor::Tensor;
 
 /// Voice clone prompt item containing reference audio information.
 ///

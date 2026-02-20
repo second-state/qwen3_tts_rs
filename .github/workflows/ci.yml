@@ -11,13 +11,20 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            name: Linux x86_64
+            name: Linux x86_64 (tch)
+            backend: tch
             pip-extra-args: "--index-url https://download.pytorch.org/whl/cpu"
           - os: ubuntu-24.04-arm
-            name: Linux ARM64
+            name: Linux ARM64 (tch)
+            backend: tch
             pip-extra-args: ""
           - os: macos-latest
-            name: macOS ARM64
+            name: macOS ARM64 (tch)
+            backend: tch
+            pip-extra-args: ""
+          - os: macos-latest
+            name: macOS ARM64 (MLX)
+            backend: mlx
             pip-extra-args: ""
 
     runs-on: ${{ matrix.os }}
@@ -25,6 +32,10 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Init MLX submodule
+        if: matrix.backend == 'mlx'
+        run: git submodule update --init --recursive
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -36,9 +47,9 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-${{ runner.arch }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-${{ matrix.backend }}-cargo-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-cargo-
+            ${{ runner.os }}-${{ runner.arch }}-${{ matrix.backend }}-cargo-
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -46,25 +57,32 @@ jobs:
           python-version: "3.12"
 
       - name: Install PyTorch
+        if: matrix.backend == 'tch'
         run: pip install torch==2.10.0 ${{ matrix.pip-extra-args }}
 
       - name: Install HuggingFace tools
         run: pip install huggingface_hub transformers
 
       - name: Set library path (Linux)
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && matrix.backend == 'tch'
         run: echo "LD_LIBRARY_PATH=$(python3 -c 'import torch; print(torch.__path__[0])')/lib:$LD_LIBRARY_PATH" >> "$GITHUB_ENV"
 
       - name: Set library path (macOS)
-        if: runner.os == 'macOS'
+        if: runner.os == 'macOS' && matrix.backend == 'tch'
         run: echo "DYLD_LIBRARY_PATH=$(python3 -c 'import torch; print(torch.__path__[0])')/lib:$DYLD_LIBRARY_PATH" >> "$GITHUB_ENV"
 
-      - name: Build
+      - name: Build (tch)
+        if: matrix.backend == 'tch'
         env:
           LIBTORCH_USE_PYTORCH: "1"
         run: cargo build --release
 
+      - name: Build (MLX)
+        if: matrix.backend == 'mlx'
+        run: cargo build --release --no-default-features --features mlx
+
       - name: Build examples
+        if: matrix.backend == 'tch'
         env:
           LIBTORCH_USE_PYTORCH: "1"
         run: cargo build --examples --release
@@ -88,10 +106,8 @@ jobs:
           "
 
       - name: Generate English audio
-        env:
-          LIBTORCH_USE_PYTORCH: "1"
         run: |
-          cargo run --example tts_demo --release -- \
+          ./target/release/tts \
             models/Qwen3-TTS-12Hz-0.6B-CustomVoice \
             "Hello! This is a test of the Qwen3 TTS system running on CI." \
             Vivian \
@@ -99,10 +115,8 @@ jobs:
           mv output.wav vivian_english.wav
 
       - name: Generate Chinese audio
-        env:
-          LIBTORCH_USE_PYTORCH: "1"
         run: |
-          cargo run --example tts_demo --release -- \
+          ./target/release/tts \
             models/Qwen3-TTS-12Hz-0.6B-CustomVoice \
             "你好！这是Qwen3语音合成系统的持续集成测试。" \
             Vivian \
@@ -110,10 +124,8 @@ jobs:
           mv output.wav vivian_chinese.wav
 
       - name: Generate Ryan reference audio
-        env:
-          LIBTORCH_USE_PYTORCH: "1"
         run: |
-          cargo run --example tts_demo --release -- \
+          ./target/release/tts \
             models/Qwen3-TTS-12Hz-0.6B-CustomVoice \
             "The quick brown fox jumps over the lazy dog." \
             Ryan \
@@ -139,10 +151,8 @@ jobs:
           "
 
       - name: Voice clone from Ryan reference
-        env:
-          LIBTORCH_USE_PYTORCH: "1"
         run: |
-          cargo run --example voice_clone_demo --release -- \
+          ./target/release/voice_clone \
             models/Qwen3-TTS-12Hz-0.6B-Base \
             ryan_reference.wav \
             "This is a voice cloning test using Ryan as the reference speaker." \
@@ -150,10 +160,8 @@ jobs:
           mv output_voice_clone.wav output_ryan_clone.wav
 
       - name: Voice clone (ICL mode) from Ryan reference
-        env:
-          LIBTORCH_USE_PYTORCH: "1"
         run: |
-          cargo run --example voice_clone_demo --release -- \
+          ./target/release/voice_clone \
             models/Qwen3-TTS-12Hz-0.6B-Base \
             ryan_reference.wav \
             "This is a voice cloning test with in-context learning." \
@@ -180,10 +188,8 @@ jobs:
           "
 
       - name: Generate urgent voice (1.7B with instruction)
-        env:
-          LIBTORCH_USE_PYTORCH: "1"
         run: |
-          cargo run --example tts_demo --release -- \
+          ./target/release/tts \
             models/Qwen3-TTS-12Hz-1.7B-CustomVoice \
             "Breaking news! There has been a major development in the city center." \
             Vivian \
@@ -192,10 +198,8 @@ jobs:
           mv output.wav vivian_urgent_1.7b.wav
 
       - name: Generate happy voice (1.7B with instruction)
-        env:
-          LIBTORCH_USE_PYTORCH: "1"
         run: |
-          cargo run --example tts_demo --release -- \
+          ./target/release/tts \
             models/Qwen3-TTS-12Hz-1.7B-CustomVoice \
             "I am so happy to announce that we have won the championship!" \
             Vivian \
@@ -206,10 +210,10 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: qwen3-tts-${{ matrix.os }}-${{ runner.arch }}
+          name: qwen3-tts-${{ matrix.os }}-${{ runner.arch }}-${{ matrix.backend }}
           path: |
-            target/release/examples/tts_demo
-            target/release/examples/voice_clone_demo
+            target/release/tts
+            target/release/voice_clone
             vivian_english.wav
             vivian_chinese.wav
             ryan_reference.wav

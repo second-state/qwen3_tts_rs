@@ -1,19 +1,17 @@
 // Copyright 2026 Claude Code on behalf of Michael Yuan.
 // SPDX-License-Identifier: Apache-2.0
 
-//! Demo: Clone a voice from reference audio and generate speech.
+//! Clone a voice from reference audio and generate speech.
 //!
 //! Usage:
-//!   cargo run --example voice_clone_demo --release -- <model_path> <ref_audio> [text] [language] [ref_text]
+//!   voice_clone <model_path> <ref_audio> [text] [language] [ref_text]
 //!
 //! Without ref_text (x-vector only mode):
-//!   cargo run --example voice_clone_demo --release -- \
-//!     models/Qwen3-TTS-12Hz-0.6B-Base ref.wav \
+//!   voice_clone models/Qwen3-TTS-12Hz-0.6B-Base ref.wav \
 //!     "Hello world, this is a voice cloning test." english
 //!
 //! With ref_text (ICL mode, higher quality):
-//!   cargo run --example voice_clone_demo --release -- \
-//!     models/Qwen3-TTS-12Hz-0.6B-Base ref.wav \
+//!   voice_clone models/Qwen3-TTS-12Hz-0.6B-Base ref.wav \
 //!     "Hello world, this is a voice cloning test." english \
 //!     "This is the transcript of the reference audio."
 
@@ -21,8 +19,8 @@ use qwen3_tts::audio::write_wav_file;
 use qwen3_tts::audio_encoder::AudioEncoder;
 use qwen3_tts::inference::TTSInference;
 use qwen3_tts::speaker_encoder::SpeakerEncoder;
+use qwen3_tts::tensor::Device;
 use std::path::Path;
-use tch::Device;
 
 fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().collect();
@@ -66,6 +64,13 @@ fn main() -> anyhow::Result<()> {
     }
     println!();
 
+    // Initialize MLX backend with GPU (Metal) when using the mlx feature
+    #[cfg(feature = "mlx")]
+    {
+        qwen3_tts::backend::mlx::stream::init_mlx(true);
+        println!("MLX backend initialized (Metal GPU)");
+    }
+
     // Step 1: Load model
     println!("Loading model from: {}", model_path);
     let device = Device::Cpu;
@@ -103,7 +108,9 @@ fn main() -> anyhow::Result<()> {
     println!("Extracting speaker embedding...");
     let speaker_embedding = speaker_encoder.extract_embedding(&ref_samples)?;
     println!("  Speaker embedding shape: {:?}", speaker_embedding.size());
-    let emb_norm = f64::try_from(&speaker_embedding.norm()).unwrap_or(0.0);
+    let emb_sq = &speaker_embedding * &speaker_embedding;
+    let emb_norm = emb_sq.mean_all().try_into_f64().unwrap_or(0.0).sqrt()
+        * (speaker_embedding.numel() as f64).sqrt();
     println!("  Speaker embedding norm: {:.4}", emb_norm);
 
     // Step 5: Generate speech

@@ -16,7 +16,7 @@ use crate::tokenizer::Qwen3TTSTokenizer;
 use crate::types::{GenerationOutput, Language, Speaker, VoiceClonePromptItem, VoiceInstruction};
 use std::collections::HashSet;
 use std::path::Path;
-use tch::{Device, Kind, Tensor};
+use crate::tensor::{DType, Device, Tensor};
 
 /// Builder for generation parameters.
 #[derive(Debug, Clone, Default)]
@@ -500,13 +500,13 @@ impl Qwen3TTSModel {
 
         // Placeholder: Extract speaker embedding
         // In a real implementation, this would use the speaker encoder model
-        let spk_embedding = Tensor::zeros([1024], (Kind::Float, self.device));
+        let spk_embedding = Tensor::zeros(&[1024], DType::Float32, self.device);
 
         // Placeholder: Encode reference audio to codes
         // In a real implementation, this would use the speech tokenizer
         let ref_code = if !x_vector_only_mode {
             let code_len = samples.len() / 960; // Approximate based on downsample rate
-            Some(Tensor::zeros([code_len as i64], (Kind::Int64, self.device)))
+            Some(Tensor::zeros(&[code_len as i64], DType::Int64, self.device))
         } else {
             None
         };

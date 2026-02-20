@@ -3,36 +3,33 @@
 [![Crates.io](https://img.shields.io/crates/v/qwen3_tts.svg)](https://crates.io/crates/qwen3_tts)
 [![License](https://img.shields.io/crates/l/qwen3_tts.svg)](https://github.com/juntao/qwen3_tts_rs/blob/main/LICENSE)
 
-A Rust implementation of the Qwen3 Text-to-Speech (TTS) model inference, using the [tch](https://github.com/LaurentMazare/tch-rs) crate for PyTorch/libtorch bindings.
+A Rust implementation of the Qwen3 Text-to-Speech (TTS) model inference with two backend options:
+
+- **tch-backend** (default) — uses [tch](https://github.com/LaurentMazare/tch-rs) / PyTorch libtorch. Works on Linux (CPU/CUDA) and macOS.
+- **mlx** — uses [Apple MLX](https://github.com/ml-explore/mlx) via mlx-c for native Metal GPU acceleration on Apple Silicon. No libtorch required.
 
 ## Prerequisites
 
-### Install libtorch
+### Backend setup
 
-The `tch` crate (v0.23) requires **PyTorch/libtorch 2.10.0**. You can set it up in one of two ways.
+Choose **one** of the two backends below.
 
-#### Option 1: Use pip-installed PyTorch (recommended)
+#### Option A: tch-backend (default)
 
-Install PyTorch via pip and point the build system to it:
-
-```bash
-pip install torch==2.10.0
-```
-
-Then set the following environment variables before building:
-
-```bash
-export LIBTORCH_USE_PYTORCH=1
-export LD_LIBRARY_PATH=$(python3 -c "import torch; print(torch.__path__[0])")/lib:$LD_LIBRARY_PATH
-```
-
-#### Option 2: Download libtorch directly
+The `tch` crate (v0.23) requires **libtorch 2.10.0**. Download the pre-built library for your platform:
 
 Linux x86 CPU:
 
 ```bash
 curl -LO https://download.pytorch.org/libtorch/cpu/libtorch-cxx11-abi-shared-with-deps-2.10.0%2Bcpu.zip
 unzip libtorch-cxx11-abi-shared-with-deps-2.10.0+cpu.zip
+```
+
+Linux ARM CPU (download from [second-state/libtorch-releases](https://github.com/second-state/libtorch-releases/releases)):
+
+```bash
+curl -LO https://github.com/second-state/libtorch-releases/releases/download/v2.10.0/libtorch-cxx11-abi-aarch64-2.10.0.tar.gz
+tar xzf libtorch-cxx11-abi-aarch64-2.10.0.tar.gz
 ```
 
 Linux x86 with CUDA 12.8:
@@ -55,6 +52,23 @@ Then set environment variables (add to `~/.zprofile` or `~/.bash_profile` to per
 export LIBTORCH=$(pwd)/libtorch
 export LD_LIBRARY_PATH=$(pwd)/libtorch/lib:$LD_LIBRARY_PATH
 ```
+
+Alternatively, if you already have Python/PyTorch, see [Troubleshooting: Using pip-installed PyTorch](#using-pip-installed-pytorch).
+
+#### Option B: MLX backend (macOS Apple Silicon only)
+
+The MLX backend requires:
+- Apple Silicon Mac (M1/M2/M3/M4)
+- Xcode (full installation, not just Command Line Tools — needed for the Metal shader compiler)
+- CMake (`brew install cmake`)
+
+Initialize the mlx-c submodule:
+
+```bash
+git submodule update --init --recursive
+```
+
+No libtorch or PyTorch installation is needed.
 
 ### Download the model
 
@@ -96,23 +110,37 @@ for model in ['Qwen3-TTS-12Hz-0.6B-CustomVoice', 'Qwen3-TTS-12Hz-0.6B-Base', 'Qw
 ```bash
 git clone https://github.com/juntao/qwen3_tts_rs.git
 cd qwen3_tts_rs
+```
+
+**tch-backend (default):**
+
+```bash
 cargo build --release
 ```
 
-## Run
-
-### TTS Demo
-
-Generate speech from text:
+**MLX backend:**
 
 ```bash
-cargo run --example tts_demo --release -- <model_path> [text] [speaker] [language] [instruction]
+git submodule update --init --recursive
+cargo build --release --no-default-features --features mlx
+```
+
+This produces the CLI tools in `target/release/`:
+- `tts` — text-to-speech generation
+- `voice_clone` — voice cloning from reference audio
+
+## Run
+
+### Text-to-Speech
+
+```bash
+./target/release/tts <model_path> [text] [speaker] [language] [instruction]
 ```
 
 Example:
 
 ```bash
-cargo run --example tts_demo --release -- \
+./target/release/tts \
   models/Qwen3-TTS-12Hz-0.6B-CustomVoice \
   "Hello world, this is a test." \
   Vivian \
@@ -126,7 +154,7 @@ This generates an `output.wav` file with 24kHz audio.
 The 1.7B CustomVoice model supports instruction control to modulate voice characteristics like emotion, speaking style, and pace:
 
 ```bash
-cargo run --example tts_demo --release -- \
+./target/release/tts \
   models/Qwen3-TTS-12Hz-1.7B-CustomVoice \
   "Breaking news! There has been a major development." \
   Vivian \
@@ -140,12 +168,12 @@ Other instruction examples:
 - `"Speak in a whisper"`
 - `"Speak with a sad tone"`
 
-### Voice Clone Demo
+### Voice Cloning
 
 Clone a voice from a reference audio file using the Base model:
 
 ```bash
-cargo run --example voice_clone_demo --release -- <model_path> <ref_audio> [text] [language] [ref_text]
+./target/release/voice_clone <model_path> <ref_audio> [text] [language] [ref_text]
 ```
 
 **Preparing reference audio:** The reference audio must be a mono 24kHz 16-bit WAV file. Use ffmpeg to convert from other formats:
@@ -159,7 +187,7 @@ Sample reference audio files are provided in the `reference_audio/` directory.
 **X-vector only mode** (no reference text):
 
 ```bash
-cargo run --example voice_clone_demo --release -- \
+./target/release/voice_clone \
   models/Qwen3-TTS-12Hz-0.6B-Base \
   reference_audio/trump.wav \
   "Hello world, this is a voice cloning test." \
@@ -169,7 +197,7 @@ cargo run --example voice_clone_demo --release -- \
 **ICL mode** (with reference text, higher quality):
 
 ```bash
-cargo run --example voice_clone_demo --release -- \
+./target/release/voice_clone \
   models/Qwen3-TTS-12Hz-0.6B-Base \
   reference_audio/trump.wav \
   "Hello world, this is a voice cloning test." \
@@ -177,17 +205,9 @@ cargo run --example voice_clone_demo --release -- \
   "Angered and appalled millions of Americans across the political spectrum"
 ```
 
-When a reference text transcript is provided as the 5th argument, the demo uses **ICL (In-Context Learning) mode**, which encodes the reference audio into codec tokens and conditions generation on both the speaker embedding and the reference audio/text. This typically produces higher fidelity voice cloning compared to x-vector only mode.
+When a reference text transcript is provided as the 5th argument, ICL (In-Context Learning) mode is used, which encodes the reference audio into codec tokens and conditions generation on both the speaker embedding and the reference audio/text. This typically produces higher fidelity voice cloning compared to x-vector only mode.
 
 Output is written to `output_voice_clone.wav`.
-
-### Test Weight Loading
-
-Verify that model weights load correctly:
-
-```bash
-cargo run --example test_weights --release -- models/Qwen3-TTS-12Hz-0.6B-CustomVoice
-```
 
 ### Available speakers (CustomVoice 0.6B)
 
@@ -204,7 +224,13 @@ Add `qwen3_tts` as a dependency in your `Cargo.toml`:
 ```toml
 [dependencies]
 qwen3_tts = "0.1"
-tch = "0.23"
+```
+
+By default this uses the tch-backend. To use MLX instead:
+
+```toml
+[dependencies]
+qwen3_tts = { version = "0.1", default-features = false, features = ["mlx"] }
 ```
 
 ### Named Characters (CustomVoice)
@@ -214,8 +240,8 @@ Generate speech using a predefined speaker voice:
 ```rust
 use qwen3_tts::audio::write_wav_file;
 use qwen3_tts::inference::TTSInference;
+use qwen3_tts::tensor::Device;
 use std::path::Path;
-use tch::Device;
 
 fn main() -> anyhow::Result<()> {
     let inference = TTSInference::new(
@@ -255,7 +281,7 @@ The 1.7B CustomVoice model supports instruction control to modulate voice charac
 use qwen3_tts::audio::write_wav_file;
 use qwen3_tts::inference::TTSInference;
 use std::path::Path;
-use tch::Device;
+use qwen3_tts::tensor::Device;
 
 fn main() -> anyhow::Result<()> {
     let inference = TTSInference::new(
@@ -301,7 +327,7 @@ use qwen3_tts::audio::{load_wav_file, resample, write_wav_file};
 use qwen3_tts::inference::TTSInference;
 use qwen3_tts::speaker_encoder::SpeakerEncoder;
 use std::path::Path;
-use tch::Device;
+use qwen3_tts::tensor::Device;
 
 fn main() -> anyhow::Result<()> {
     let device = Device::Cpu;
@@ -346,7 +372,7 @@ use qwen3_tts::audio_encoder::AudioEncoder;
 use qwen3_tts::inference::TTSInference;
 use qwen3_tts::speaker_encoder::SpeakerEncoder;
 use std::path::Path;
-use tch::Device;
+use qwen3_tts::tensor::Device;
 
 fn main() -> anyhow::Result<()> {
     let device = Device::Cpu;
@@ -437,7 +463,8 @@ Key components:
 
 ## Dependencies
 
-- **tch** (0.23): PyTorch/libtorch bindings for tensor ops and neural network inference
+- **tch** (0.23, optional): PyTorch/libtorch bindings — used by the `tch-backend` feature (default)
+- **mlx-c** (submodule, optional): Apple MLX C bindings — used by the `mlx` feature
 - **tokenizers** (0.21): HuggingFace tokenizers for BPE text tokenization
 - **hound**: WAV file reading/writing
 - **serde/serde_json**: Configuration deserialization
@@ -446,6 +473,27 @@ Key components:
 ## License
 
 Apache-2.0
+
+## Troubleshooting
+
+### Using pip-installed PyTorch
+
+If you already have Python installed, you can use pip-installed PyTorch instead of downloading libtorch separately:
+
+```bash
+pip install torch==2.10.0
+export LIBTORCH_USE_PYTORCH=1
+export LD_LIBRARY_PATH=$(python3 -c "import torch; print(torch.__path__[0])")/lib:$LD_LIBRARY_PATH
+```
+
+### Test weight loading
+
+Verify that model weights load correctly by building and running the `test_weights` diagnostic example:
+
+```bash
+cargo build --examples --release
+./target/release/examples/test_weights models/Qwen3-TTS-12Hz-0.6B-CustomVoice
+```
 
 ## Credits
 

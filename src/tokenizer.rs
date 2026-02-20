@@ -13,7 +13,7 @@ use crate::error::{Qwen3TTSError, Result};
 use crate::types::{DecodedAudio, EncodedAudio};
 use serde::Deserialize;
 use std::path::Path;
-use tch::{Device, Kind, Tensor};
+use crate::tensor::{DType, Device, Tensor};
 
 /// Configuration for the speech tokenizer.
 #[derive(Debug, Clone, Deserialize)]
@@ -199,8 +199,8 @@ impl Qwen3TTSTokenizer {
     /// Load and preprocess audio for encoding.
     fn _prepare_audio(&self, audio: AudioInput) -> Result<Tensor> {
         let samples = load_audio(audio, self.config.input_sample_rate)?;
-        let tensor = Tensor::from_slice(&samples)
-            .view([1, samples.len() as i64])
+        let tensor = Tensor::from_slice_f32(&samples)
+            .view(&[1, samples.len() as i64])
             .to_device(self.device);
         Ok(tensor)
     }
@@ -268,24 +268,25 @@ impl Qwen3TTSTokenizer {
             match self.tokenizer_type {
                 TokenizerType::V1_25Hz => {
                     // V1: codes shape (T,), xvector shape (D,), ref_mel shape (T, M)
-                    let codes = Tensor::zeros([code_len as i64], (Kind::Int64, self.device));
+                    let codes = Tensor::zeros(&[code_len as i64], DType::Int64, self.device);
                     audio_codes.push(codes);
 
                     if let Some(ref mut xvecs) = xvectors {
-                        let xvec = Tensor::zeros([1024], (Kind::Float, self.device));
+                        let xvec = Tensor::zeros(&[1024], DType::Float32, self.device);
                         xvecs.push(xvec);
                     }
 
                     if let Some(ref mut mels) = ref_mels {
-                        let mel = Tensor::zeros([code_len as i64, 80], (Kind::Float, self.device));
+                        let mel = Tensor::zeros(&[code_len as i64, 80], DType::Float32, self.device);
                         mels.push(mel);
                     }
                 }
                 TokenizerType::V2_12Hz => {
                     // V2: codes shape (T, Q) where Q is num_quantizers
                     let codes = Tensor::zeros(
-                        [code_len as i64, self.config.num_quantizers as i64],
-                        (Kind::Int64, self.device),
+                        &[code_len as i64, self.config.num_quantizers as i64],
+                        DType::Int64,
+                        self.device,
                     );
                     audio_codes.push(codes);
                 }

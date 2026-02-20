@@ -15,7 +15,7 @@ use crate::layers::{Linear, RMSNorm, RotaryEmbedding, TransformerLayer};
 use crate::vocoder::{load_vocoder_weights, Vocoder, VocoderConfig};
 use std::collections::HashMap;
 use std::path::Path;
-use tch::{Device, Kind, Tensor};
+use crate::tensor::{Tensor, Device, DType};
 use tokenizers::Tokenizer;
 
 /// Code predictor sub-transformer for generating codes 1-15 autoregressively.
@@ -69,7 +69,7 @@ impl CodePredictor {
         for i in 0..(num_code_groups - 1) {
             let key = format!("talker.code_predictor.model.codec_embedding.{}.weight", i);
             if let Some(tensor) = weights.get(&key) {
-                code_embeddings.push(tensor.to_device(device).to_kind(Kind::Float));
+                code_embeddings.push(tensor.to_device(device).to_dtype(DType::Float32));
             }
         }
         println!(
@@ -104,7 +104,7 @@ impl CodePredictor {
             .get("talker.code_predictor.model.norm.weight")
             .ok_or_else(|| Qwen3TTSError::ModelLoad("Missing code_predictor norm.weight".into()))?
             .to_device(device)
-            .to_kind(Kind::Float);
+            .to_dtype(DType::Float32);
         let norm = RMSNorm::from_weights(norm_weight, rms_norm_eps);
 
         // Load LM heads (15 for codes 1-15)
@@ -113,7 +113,7 @@ impl CodePredictor {
             let key = format!("talker.code_predictor.lm_head.{}.weight", i);
             if let Some(tensor) = weights.get(&key) {
                 lm_heads.push(Linear::from_weights(
-                    tensor.to_device(device).to_kind(Kind::Float),
+                    tensor.to_device(device).to_dtype(DType::Float32),
                 ));
             }
         }
@@ -126,11 +126,11 @@ impl CodePredictor {
             let proj_bias = weights.get("talker.code_predictor.small_to_mtp_projection.bias");
             let proj = if let Some(bias) = proj_bias {
                 Linear::from_weights_with_bias(
-                    proj_weight.to_device(device).to_kind(Kind::Float),
-                    bias.to_device(device).to_kind(Kind::Float),
+                    proj_weight.to_device(device).to_dtype(DType::Float32),
+                    bias.to_device(device).to_dtype(DType::Float32),
                 )
             } else {
-                Linear::from_weights(proj_weight.to_device(device).to_kind(Kind::Float))
+                Linear::from_weights(proj_weight.to_device(device).to_dtype(DType::Float32))
             };
             println!("  Loaded small_to_mtp_projection");
             Some(proj)
@@ -188,10 +188,10 @@ impl CodePredictor {
             let seq_len = sequence.size()[1];
 
             // Create causal mask
-            let mask = Tensor::zeros([seq_len, seq_len], (Kind::Float, self.device));
-            let upper = Tensor::ones([seq_len, seq_len], (Kind::Bool, self.device)).triu(1);
+            let mask = Tensor::zeros(&[seq_len, seq_len], DType::Float32, self.device);
+            let upper = Tensor::ones(&[seq_len, seq_len], DType::Bool, self.device).triu(1);
             let causal_mask = mask.masked_fill(&upper, f64::NEG_INFINITY);
-            let causal_mask = causal_mask.view([1, 1, seq_len, seq_len]);
+            let causal_mask = causal_mask.view(&[1, 1, seq_len, seq_len]);
 
             // Apply projection if present (1.7B+ models: project from 2048 to 1024)
             let projected_sequence = if let Some(ref proj) = self.small_to_mtp_projection {
@@ -229,7 +229,7 @@ impl CodePredictor {
                     logits
                 };
 
-                let probs = logits.softmax(-1, Kind::Float);
+                let probs = logits.softmax(-1);
                 probs.multinomial(1, true).int64_value(&[0, 0])
             };
 
@@ -237,7 +237,7 @@ impl CodePredictor {
 
             // Embed the predicted code and append to sequence
             if step < self.code_embeddings.len() {
-                let code_tensor = Tensor::from_slice(&[code]).to_device(self.device);
+                let code_tensor = Tensor::from_slice_i64(&[code]).to_device(self.device);
                 let emb = self.code_embeddings[step]
                     .index_select(0, &code_tensor)
                     .unsqueeze(0); // [1, 1, hidden_size]
@@ -313,7 +313,7 @@ impl TalkerModel {
             .get("talker.model.text_embedding.weight")
             .ok_or_else(|| Qwen3TTSError::ModelLoad("Missing text_embedding.weight".into()))?
             .to_device(device)
-            .to_kind(Kind::Float);
+            .to_dtype(DType::Float32);
         println!("  Loaded text_embedding: {:?}", text_embedding.size());
 
         // Load text projection layers (2048 -> 1024)
@@ -323,28 +323,28 @@ impl TalkerModel {
                 Qwen3TTSError::ModelLoad("Missing text_projection.linear_fc1.weight".into())
             })?
             .to_device(device)
-            .to_kind(Kind::Float);
+            .to_dtype(DType::Float32);
         let text_proj_fc1_bias = weights
             .get("talker.text_projection.linear_fc1.bias")
             .ok_or_else(|| {
                 Qwen3TTSError::ModelLoad("Missing text_projection.linear_fc1.bias".into())
             })?
             .to_device(device)
-            .to_kind(Kind::Float);
+            .to_dtype(DType::Float32);
         let text_proj_fc2_weight = weights
             .get("talker.text_projection.linear_fc2.weight")
             .ok_or_else(|| {
                 Qwen3TTSError::ModelLoad("Missing text_projection.linear_fc2.weight".into())
             })?
             .to_device(device)
-            .to_kind(Kind::Float);
+            .to_dtype(DType::Float32);
         let text_proj_fc2_bias = weights
             .get("talker.text_projection.linear_fc2.bias")
             .ok_or_else(|| {
                 Qwen3TTSError::ModelLoad("Missing text_projection.linear_fc2.bias".into())
             })?
             .to_device(device)
-            .to_kind(Kind::Float);
+            .to_dtype(DType::Float32);
         println!("  Loaded text_projection layers");
 
         // Load main codec embedding [3072, 1024]
@@ -354,7 +354,7 @@ impl TalkerModel {
                 Qwen3TTSError::ModelLoad("Missing talker.model.codec_embedding.weight".into())
             })?
             .to_device(device)
-            .to_kind(Kind::Float);
+            .to_dtype(DType::Float32);
         println!("  Loaded codec_embedding: {:?}", codec_embedding.size());
 
         // Load transformer layers
@@ -384,7 +384,7 @@ impl TalkerModel {
             .get("talker.model.norm.weight")
             .ok_or_else(|| Qwen3TTSError::ModelLoad("Missing norm.weight".into()))?
             .to_device(device)
-            .to_kind(Kind::Float);
+            .to_dtype(DType::Float32);
         let norm = RMSNorm::from_weights(norm_weight, rms_norm_eps);
         println!("  Loaded final norm");
 
@@ -393,7 +393,7 @@ impl TalkerModel {
             .get("talker.codec_head.weight")
             .ok_or_else(|| Qwen3TTSError::ModelLoad("Missing talker.codec_head.weight".into()))?
             .to_device(device)
-            .to_kind(Kind::Float);
+            .to_dtype(DType::Float32);
         let codec_head = Linear::from_weights(codec_head_weight);
         println!("  Loaded codec_head");
 
@@ -428,12 +428,12 @@ impl TalkerModel {
 
     /// Embed text token IDs through text_embedding → text_projection (2048 → 1024).
     fn embed_text(&self, token_ids: &[i64]) -> Tensor {
-        let ids = Tensor::from_slice(token_ids).to_device(self.device);
+        let ids = Tensor::from_slice_i64(token_ids).to_device(self.device);
         let embedded = self.text_embedding.index_select(0, &ids); // [N, 2048]
 
         // Text projection: FC1(2048→2048) with GELU, then FC2(2048→1024)
         let h = embedded.matmul(&self.text_proj_fc1_weight.tr()) + &self.text_proj_fc1_bias;
-        let h = h.gelu("none");
+        let h = h.gelu();
         let projected = h.matmul(&self.text_proj_fc2_weight.tr()) + &self.text_proj_fc2_bias;
 
         projected.unsqueeze(0) // [1, N, 1024]
@@ -441,7 +441,7 @@ impl TalkerModel {
 
     /// Embed codec token IDs through codec_embedding (3072 → 1024).
     fn embed_codec(&self, token_ids: &[i64]) -> Tensor {
-        let ids = Tensor::from_slice(token_ids).to_device(self.device);
+        let ids = Tensor::from_slice_i64(token_ids).to_device(self.device);
         self.codec_embedding.index_select(0, &ids).unsqueeze(0) // [1, N, 1024]
     }
 
@@ -491,7 +491,7 @@ impl TalkerModel {
         ]); // [1, 7, 1024]
 
         // Text side for codec prefix: tts_pad repeated 5 times + tts_bos
-        let tts_pad_5 = tts_pad_embed.expand([1, 5, self.hidden_size], false); // [1, 5, 1024]
+        let tts_pad_5 = tts_pad_embed.expand(&[1, 5, self.hidden_size], false); // [1, 5, 1024]
         let text_for_codec = Tensor::cat(&[tts_pad_5, tts_bos_embed.shallow_clone()], 1); // [1, 6, 1024]
 
         // Sum text + codec (first 6 of 7 codec prefix positions)
@@ -510,7 +510,7 @@ impl TalkerModel {
         let text_content_embed = if num_text_tokens > 0 {
             self.embed_text(text_content_ids) // [1, N, 1024]
         } else {
-            Tensor::zeros([1, 0, self.hidden_size], (Kind::Float, self.device))
+            Tensor::zeros(&[1, 0, self.hidden_size], DType::Float32, self.device)
         };
 
         // Concatenate text content + tts_eos
@@ -519,7 +519,7 @@ impl TalkerModel {
         // Codec side: codec_pad repeated (N+1) times
         let codec_pad_embed = self.embed_codec(&[codec_pad_id]); // [1, 1, 1024]
         let codec_pad_repeated =
-            codec_pad_embed.expand([1, (num_text_tokens + 1) as i64, self.hidden_size], false);
+            codec_pad_embed.expand(&[1, (num_text_tokens + 1) as i64, self.hidden_size], false);
 
         let phase3 = &text_with_eos + &codec_pad_repeated; // [1, N+1, 1024]
 
@@ -575,7 +575,7 @@ impl TalkerModel {
 
         // Speaker embedding: use provided x-vector directly (reshape to [1, 1, 1024])
         let spk_embed = speaker_embedding
-            .to_kind(Kind::Float)
+            .to_dtype(DType::Float32)
             .to_device(self.device);
         let spk_embed = if spk_embed.dim() == 1 {
             spk_embed.unsqueeze(0).unsqueeze(0) // [1024] → [1, 1, 1024]
@@ -598,7 +598,7 @@ impl TalkerModel {
         );
 
         // Text side for codec prefix: tts_pad repeated 5 times + tts_bos
-        let tts_pad_5 = tts_pad_embed.expand([1, 5, self.hidden_size], false);
+        let tts_pad_5 = tts_pad_embed.expand(&[1, 5, self.hidden_size], false);
         let text_for_codec = Tensor::cat(&[tts_pad_5, tts_bos_embed.shallow_clone()], 1); // [1, 6, 1024]
 
         // Sum text + codec (first 6 of 7 codec prefix positions)
@@ -614,14 +614,14 @@ impl TalkerModel {
         let text_content_embed = if num_text_tokens > 0 {
             self.embed_text(text_content_ids)
         } else {
-            Tensor::zeros([1, 0, self.hidden_size], (Kind::Float, self.device))
+            Tensor::zeros(&[1, 0, self.hidden_size], DType::Float32, self.device)
         };
 
         let text_with_eos = Tensor::cat(&[text_content_embed, tts_eos_embed.shallow_clone()], 1);
 
         let codec_pad_embed = self.embed_codec(&[codec_pad_id]);
         let codec_pad_repeated =
-            codec_pad_embed.expand([1, (num_text_tokens + 1) as i64, self.hidden_size], false);
+            codec_pad_embed.expand(&[1, (num_text_tokens + 1) as i64, self.hidden_size], false);
 
         let phase3 = &text_with_eos + &codec_pad_repeated;
 
@@ -690,7 +690,7 @@ impl TalkerModel {
 
         // Speaker embedding
         let spk_embed = speaker_embedding
-            .to_kind(Kind::Float)
+            .to_dtype(DType::Float32)
             .to_device(self.device);
         let spk_embed = if spk_embed.dim() == 1 {
             spk_embed.unsqueeze(0).unsqueeze(0)
@@ -712,7 +712,7 @@ impl TalkerModel {
         ); // [1, 7, 1024]
 
         // Text side for codec prefix: tts_pad * 5 + tts_bos
-        let tts_pad_5 = tts_pad_embed.expand([1, 5, self.hidden_size], false);
+        let tts_pad_5 = tts_pad_embed.expand(&[1, 5, self.hidden_size], false);
         let text_for_codec = Tensor::cat(&[tts_pad_5, tts_bos_embed.shallow_clone()], 1); // [1, 6, 1024]
 
         // Sum text + codec (first 6 of 7 codec prefix positions)
@@ -734,7 +734,7 @@ impl TalkerModel {
 
         // Pair each text position with codec_pad
         let codec_pad_embed = self.embed_codec(&[codec_pad_id]); // [1, 1, 1024]
-        let codec_pad_repeated = codec_pad_embed.expand([1, text_len, self.hidden_size], false);
+        let codec_pad_repeated = codec_pad_embed.expand(&[1, text_len, self.hidden_size], false);
         let phase3 = &text_embed + &codec_pad_repeated; // [1, T_text+1, 1024]
 
         // Phase 4: ICL codec stream
@@ -746,10 +746,10 @@ impl TalkerModel {
         let mut ref_codec_embeds = Vec::new();
         for frame_codes in ref_codes {
             let mut frame_embed =
-                Tensor::zeros([1, 1, self.hidden_size], (Kind::Float, self.device));
+                Tensor::zeros(&[1, 1, self.hidden_size], DType::Float32, self.device);
             // Code 0: use main codec_embedding
             if !frame_codes.is_empty() {
-                let code0_ids = Tensor::from_slice(&[frame_codes[0]]).to_device(self.device);
+                let code0_ids = Tensor::from_slice_i64(&[frame_codes[0]]).to_device(self.device);
                 let code0_embed = self
                     .codec_embedding
                     .index_select(0, &code0_ids)
@@ -759,7 +759,7 @@ impl TalkerModel {
             // Codes 1-15: use code_predictor embeddings
             for (i, &code) in frame_codes.iter().enumerate().skip(1) {
                 if i - 1 < self.code_predictor.code_embeddings.len() {
-                    let code_ids = Tensor::from_slice(&[code]).to_device(self.device);
+                    let code_ids = Tensor::from_slice_i64(&[code]).to_device(self.device);
                     let code_embed = self.code_predictor.code_embeddings[i - 1]
                         .index_select(0, &code_ids)
                         .unsqueeze(0);
@@ -776,7 +776,7 @@ impl TalkerModel {
         let codec_len = codec_stream.size()[1];
 
         // Pair each codec position with tts_pad
-        let tts_pad_repeated = tts_pad_embed.expand([1, codec_len, self.hidden_size], false);
+        let tts_pad_repeated = tts_pad_embed.expand(&[1, codec_len, self.hidden_size], false);
         let phase4 = &codec_stream + &tts_pad_repeated; // [1, 1+R, 1024]
 
         // Phase 5: Final codec_bos to start generation
@@ -815,9 +815,40 @@ impl TalkerModel {
     }
 
     /// Predict code 0 from normed hidden states at the last position.
-    fn predict_code_0(&self, normed_hidden: &Tensor, temperature: f64, top_k: i64) -> i64 {
+    fn predict_code_0(
+        &self,
+        normed_hidden: &Tensor,
+        temperature: f64,
+        top_k: i64,
+        repetition_penalty: f64,
+        past_codes: &[i64],
+    ) -> i64 {
         let last_hidden = normed_hidden.select(1, normed_hidden.size()[1] - 1);
-        let logits = self.codec_head.forward(&last_hidden);
+        let mut logits = self.codec_head.forward(&last_hidden);
+
+        // Apply repetition penalty to previously generated codes
+        if repetition_penalty != 1.0 && !past_codes.is_empty() {
+            let logits_data = logits.to_vec_f32();
+            let vocab_size = logits.size()[logits.dim() - 1] as usize;
+            let mut modified = logits_data.clone();
+
+            for &code in past_codes {
+                let idx = code as usize;
+                if idx < vocab_size {
+                    let score = modified[idx];
+                    // Penalize: divide positive logits, multiply negative logits
+                    modified[idx] = if score > 0.0 {
+                        score / repetition_penalty as f32
+                    } else {
+                        score * repetition_penalty as f32
+                    };
+                }
+            }
+
+            logits = Tensor::from_slice_f32(&modified)
+                .reshape(&logits.size())
+                .to_device(self.device);
+        }
 
         if temperature <= 0.0 {
             logits.argmax(-1, false).int64_value(&[0])
@@ -835,7 +866,7 @@ impl TalkerModel {
                 logits
             };
 
-            let probs = logits.softmax(-1, Kind::Float);
+            let probs = logits.softmax(-1);
             probs.multinomial(1, true).int64_value(&[0, 0])
         }
     }
@@ -850,23 +881,34 @@ impl TalkerModel {
         eos_code: i64,
         tts_pad_embed: &Tensor,
     ) -> Vec<Vec<i64>> {
+        let repetition_penalty = 1.05; // From generation_config.json
         let mut all_codes = Vec::new();
+        let mut past_code_0s: Vec<i64> = Vec::new();
         let mut full_sequence = input_embeddings.shallow_clone();
 
         for step in 0..max_codes {
             let seq_len = full_sequence.size()[1];
 
             // Create causal mask
-            let mask_zeros = Tensor::zeros([seq_len, seq_len], (Kind::Float, self.device));
-            let upper = Tensor::ones([seq_len, seq_len], (Kind::Bool, self.device)).triu(1);
+            let mask_zeros = Tensor::zeros(&[seq_len, seq_len], DType::Float32, self.device);
+            let upper = Tensor::ones(&[seq_len, seq_len], DType::Bool, self.device).triu(1);
             let causal_mask = mask_zeros.masked_fill(&upper, f64::NEG_INFINITY);
-            let causal_mask = causal_mask.view([1, 1, seq_len, seq_len]);
+            let causal_mask = causal_mask.view(&[1, 1, seq_len, seq_len]);
 
             // Run through transformer
             let normed_hidden = self.forward_embeds(&full_sequence, Some(&causal_mask));
 
-            // Predict code 0 from main model
-            let code_0 = self.predict_code_0(&normed_hidden, temperature, top_k);
+            // Predict code 0 from main model (with repetition penalty)
+            let code_0 = self.predict_code_0(
+                &normed_hidden,
+                temperature,
+                top_k,
+                repetition_penalty,
+                &past_code_0s,
+            );
+
+            // Track past code 0s for repetition penalty
+            past_code_0s.push(code_0);
 
             // Check EOS on code 0 only
             if code_0 == eos_code {
@@ -880,7 +922,7 @@ impl TalkerModel {
             let main_hidden = normed_hidden.select(1, seq_len - 1).unsqueeze(1); // [1, 1, hidden_size]
 
             // Embed code 0 through main codec_embedding
-            let code_0_tensor = Tensor::from_slice(&[code_0]).to_device(self.device);
+            let code_0_tensor = Tensor::from_slice_i64(&[code_0]).to_device(self.device);
             let code_0_embed = self
                 .codec_embedding
                 .index_select(0, &code_0_tensor)
@@ -894,7 +936,7 @@ impl TalkerModel {
             // Collect all 16 codes
             let mut frame_codes = vec![code_0];
             frame_codes.extend_from_slice(&predictor_codes);
-            all_codes.push(frame_codes.clone());
+            all_codes.push(frame_codes);
 
             // Build next input: sum of all code embeddings + tts_pad (trailing text)
             // Code 0 embedding (from main codec_embedding)
@@ -903,7 +945,7 @@ impl TalkerModel {
             // Codes 1-15 embeddings (from code predictor embeddings)
             for (i, &code) in predictor_codes.iter().enumerate() {
                 if i < self.code_predictor.code_embeddings.len() {
-                    let ct = Tensor::from_slice(&[code]).to_device(self.device);
+                    let ct = Tensor::from_slice_i64(&[code]).to_device(self.device);
                     let emb = self.code_predictor.code_embeddings[i]
                         .index_select(0, &ct)
                         .unsqueeze(0); // [1, 1, hidden_size]
@@ -977,7 +1019,7 @@ impl TTSInference {
 
         // Load weights
         let weights_path = model_path.join("model.safetensors");
-        let tensors = Tensor::read_safetensors(&weights_path)?;
+        let tensors = Tensor::load_safetensors(&weights_path)?;
         let weights: HashMap<String, Tensor> = tensors
             .into_iter()
             .map(|(name, tensor)| (name, tensor.to_device(device)))
@@ -1085,8 +1127,8 @@ impl TTSInference {
         }
 
         // Create tensor [1, num_quantizers, num_frames]
-        let codes_tensor = Tensor::from_slice(&codes_flat)
-            .view([num_quantizers as i64, num_frames as i64])
+        let codes_tensor = Tensor::from_slice_i64(&codes_flat)
+            .view(&[num_quantizers as i64, num_frames as i64])
             .unsqueeze(0)
             .to_device(self.device);
 
@@ -1098,9 +1140,10 @@ impl TTSInference {
 
         // Convert tensor to Vec<f32>
         let audio_len = audio_tensor.numel();
-        let waveform =
-            Vec::<f32>::try_from(audio_tensor.view([audio_len as i64]).to_kind(Kind::Float))
-                .unwrap_or_else(|_| vec![0.0; audio_len]);
+        let waveform = audio_tensor
+            .view(&[audio_len])
+            .to_dtype(DType::Float32)
+            .to_vec_f32();
 
         println!("Decoded {} audio samples", waveform.len());
 
@@ -1381,7 +1424,7 @@ impl TTSInference {
             let codec_pad_embed = self.talker.embed_codec(&[codec_pad_id]);
             let num_instruct = instruct_token_ids.len() as i64;
             let codec_pad_repeated =
-                codec_pad_embed.expand([1, num_instruct, self.talker.hidden_size], false);
+                codec_pad_embed.expand(&[1, num_instruct, self.talker.hidden_size], false);
 
             // Sum text + codec_pad for instruction
             Some(&instruct_text_embed + &codec_pad_repeated)
