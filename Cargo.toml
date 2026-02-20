@@ -48,5 +48,13 @@ mlx = []
 [build-dependencies]
 cmake = "0.1"
 
+[[bin]]
+name = "tts"
+path = "src/bin/tts.rs"
+
+[[bin]]
+name = "voice_clone"
+path = "src/bin/voice_clone.rs"
+
 [dev-dependencies]
 tempfile = "3.14"

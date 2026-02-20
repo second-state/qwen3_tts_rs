@@ -116,33 +116,38 @@ cd qwen3_tts_rs
 **tch-backend (default):**
 
 ```bash
-cargo build --examples --release
+cargo build --release
 ```
 
 **MLX backend:**
 
 ```bash
 git submodule update --init --recursive
-cargo build --examples --release --no-default-features --features mlx
+cargo build --release --no-default-features --features mlx
 ```
 
-This produces the CLI tools in `target/release/examples/`:
+This produces the CLI tools in `target/release/`:
 - `tts` — text-to-speech generation
 - `voice_clone` — voice cloning from reference audio
-- `test_weights` — model weight verification
+
+To also build the `test_weights` diagnostic example:
+
+```bash
+cargo build --examples --release
+```
 
 ## Run
 
 ### Text-to-Speech
 
 ```bash
-./target/release/examples/tts <model_path> [text] [speaker] [language] [instruction]
+./target/release/tts <model_path> [text] [speaker] [language] [instruction]
 ```
 
 Example:
 
 ```bash
-./target/release/examples/tts \
+./target/release/tts \
   models/Qwen3-TTS-12Hz-0.6B-CustomVoice \
   "Hello world, this is a test." \
   Vivian \
@@ -156,7 +161,7 @@ This generates an `output.wav` file with 24kHz audio.
 The 1.7B CustomVoice model supports instruction control to modulate voice characteristics like emotion, speaking style, and pace:
 
 ```bash
-./target/release/examples/tts \
+./target/release/tts \
   models/Qwen3-TTS-12Hz-1.7B-CustomVoice \
   "Breaking news! There has been a major development." \
   Vivian \
@@ -175,7 +180,7 @@ Other instruction examples:
 Clone a voice from a reference audio file using the Base model:
 
 ```bash
-./target/release/examples/voice_clone <model_path> <ref_audio> [text] [language] [ref_text]
+./target/release/voice_clone <model_path> <ref_audio> [text] [language] [ref_text]
 ```
 
 **Preparing reference audio:** The reference audio must be a mono 24kHz 16-bit WAV file. Use ffmpeg to convert from other formats:
@@ -189,7 +194,7 @@ Sample reference audio files are provided in the `reference_audio/` directory.
 **X-vector only mode** (no reference text):
 
 ```bash
-./target/release/examples/voice_clone \
+./target/release/voice_clone \
   models/Qwen3-TTS-12Hz-0.6B-Base \
   reference_audio/trump.wav \
   "Hello world, this is a voice cloning test." \
@@ -199,7 +204,7 @@ Sample reference audio files are provided in the `reference_audio/` directory.
 **ICL mode** (with reference text, higher quality):
 
 ```bash
-./target/release/examples/voice_clone \
+./target/release/voice_clone \
   models/Qwen3-TTS-12Hz-0.6B-Base \
   reference_audio/trump.wav \
   "Hello world, this is a voice cloning test." \
