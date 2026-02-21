@@ -227,7 +227,7 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: qwen3-tts-${{ matrix.os }}-${{ runner.arch }}-${{ matrix.backend }}
+          name: qwen3-tts-${{ matrix.os }}-${{ runner.arch }}-${{ matrix.backend }}.zip
           path: |
             target/release/tts
             target/release/voice_clone
