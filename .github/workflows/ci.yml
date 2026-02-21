@@ -13,19 +13,21 @@ jobs:
           - os: ubuntu-latest
             name: Linux x86_64 (tch)
             backend: tch
-            pip-extra-args: "--index-url https://download.pytorch.org/whl/cpu"
+            libtorch-url: https://download.pytorch.org/libtorch/cpu/libtorch-cxx11-abi-shared-with-deps-2.7.1%2Bcpu.zip
+            libtorch-archive: libtorch.zip
           - os: ubuntu-24.04-arm
             name: Linux ARM64 (tch)
             backend: tch
-            pip-extra-args: ""
+            libtorch-url: https://github.com/second-state/libtorch-releases/releases/download/v2.7.1/libtorch-cxx11-abi-aarch64-2.7.1.tar.gz
+            libtorch-archive: libtorch.tar.gz
           - os: macos-latest
             name: macOS ARM64 (tch)
             backend: tch
-            pip-extra-args: ""
+            libtorch-url: https://download.pytorch.org/libtorch/cpu/libtorch-macos-arm64-2.7.1.zip
+            libtorch-archive: libtorch.zip
           - os: macos-latest
             name: macOS ARM64 (MLX)
             backend: mlx
-            pip-extra-args: ""
 
     runs-on: ${{ matrix.os }}
     name: Build (${{ matrix.name }})
@@ -51,36 +53,27 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-${{ runner.arch }}-${{ matrix.backend }}-cargo-
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install PyTorch
+      - name: Download libtorch
         if: matrix.backend == 'tch'
-        run: pip install torch==2.7.1 ${{ matrix.pip-extra-args }}
+        run: curl -Lo ${{ matrix.libtorch-archive }} "${{ matrix.libtorch-url }}"
 
-      - name: Install HuggingFace tools
-        run: pip install huggingface_hub transformers
-
-      - name: Set library path (Linux)
-        if: runner.os == 'Linux' && matrix.backend == 'tch'
-        run: echo "LD_LIBRARY_PATH=$(python3 -c 'import torch; print(torch.__path__[0])')/lib:$LD_LIBRARY_PATH" >> "$GITHUB_ENV"
-
-      - name: Set library path (macOS)
-        if: runner.os == 'macOS' && matrix.backend == 'tch'
-        run: echo "DYLD_LIBRARY_PATH=$(python3 -c 'import torch; print(torch.__path__[0])')/lib:$DYLD_LIBRARY_PATH" >> "$GITHUB_ENV"
-
-      - name: Set linker rpath-link (ARM64 Linux)
-        if: runner.arch == 'ARM64' && runner.os == 'Linux' && matrix.backend == 'tch'
+      - name: Extract libtorch
+        if: matrix.backend == 'tch'
         run: |
-          TORCH_LIBS=$(python3 -c "import torch, pathlib; print(pathlib.Path(torch.__path__[0]).parent / 'torch.libs')")
-          echo "RUSTFLAGS=-C link-arg=-Wl,-rpath-link,$TORCH_LIBS" >> "$GITHUB_ENV"
+          if [[ "${{ matrix.libtorch-archive }}" == *.zip ]]; then
+            unzip -q ${{ matrix.libtorch-archive }}
+          else
+            tar xzf ${{ matrix.libtorch-archive }}
+          fi
+
+      - name: Set linker rpath-link (Linux only)
+        if: runner.os == 'Linux' && matrix.backend == 'tch'
+        run: echo "RUSTFLAGS=-C link-arg=-Wl,-rpath-link,${{ github.workspace }}/libtorch/lib" >> "$GITHUB_ENV"
 
       - name: Build (tch)
         if: matrix.backend == 'tch'
         env:
-          LIBTORCH_USE_PYTORCH: "1"
+          LIBTORCH: ${{ github.workspace }}/libtorch
           LIBTORCH_BYPASS_VERSION_CHECK: "1"
         run: cargo build --release
 
@@ -91,9 +84,25 @@ jobs:
       - name: Build examples
         if: matrix.backend == 'tch'
         env:
-          LIBTORCH_USE_PYTORCH: "1"
+          LIBTORCH: ${{ github.workspace }}/libtorch
           LIBTORCH_BYPASS_VERSION_CHECK: "1"
         run: cargo build --examples --release
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install HuggingFace tools
+        run: pip install huggingface_hub transformers
+
+      - name: Set library path (Linux)
+        if: runner.os == 'Linux' && matrix.backend == 'tch'
+        run: echo "LD_LIBRARY_PATH=${{ github.workspace }}/libtorch/lib:$LD_LIBRARY_PATH" >> "$GITHUB_ENV"
+
+      - name: Set library path (macOS)
+        if: runner.os == 'macOS' && matrix.backend == 'tch'
+        run: echo "DYLD_LIBRARY_PATH=${{ github.workspace }}/libtorch/lib:$DYLD_LIBRARY_PATH" >> "$GITHUB_ENV"
 
       - name: Cache model weights
         uses: actions/cache@v4
