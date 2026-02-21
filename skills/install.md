@@ -16,9 +16,11 @@ Follow these steps to install the Qwen3 TTS skill that provides text-to-speech a
 SKILL_DIR="${HOME}/.openclaw/skills/audio_tts"
 mkdir -p "$SKILL_DIR"
 
-# Clone the skill
+# Clone the repo
 git clone --depth 1 https://github.com/juntao/qwen3_tts_rs.git /tmp/qwen3-tts-repo
 cp -r /tmp/qwen3-tts-repo/skills/* "$SKILL_DIR"
+mkdir -p "$SKILL_DIR/scripts"
+cp -r /tmp/qwen3-tts-repo/reference_audio "$SKILL_DIR/scripts/reference_audio"
 rm -rf /tmp/qwen3-tts-repo
 
 # Download platform-specific binaries, libtorch, and models

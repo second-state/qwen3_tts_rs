@@ -207,25 +207,6 @@ for model in ['Qwen3-TTS-12Hz-0.6B-CustomVoice', 'Qwen3-TTS-12Hz-0.6B-Base']:
     echo "Models installed to ${MODELS_DIR}" >&2
 }
 
-copy_reference_audio() {
-    echo "=== Copying reference audio ===" >&2
-
-    local temp_dir
-    temp_dir=$(mktemp -d)
-
-    # Clone repo (shallow) to get reference_audio/
-    git clone --depth 1 "https://github.com/${REPO}.git" "${temp_dir}/repo"
-
-    if [ -d "${temp_dir}/repo/reference_audio" ]; then
-        cp -r "${temp_dir}/repo/reference_audio" "${SCRIPTS_DIR}/reference_audio"
-        echo "Reference audio installed to ${SCRIPTS_DIR}/reference_audio" >&2
-    else
-        echo "Warning: reference_audio/ not found in repo" >&2
-    fi
-
-    rm -rf "$temp_dir"
-}
-
 main() {
     local platform
     platform=$(detect_platform)
@@ -238,7 +219,6 @@ main() {
     download_binaries "$suffix"
     download_libtorch "$platform" "$suffix"
     download_models
-    copy_reference_audio
 
     echo "" >&2
     echo "=== Installation complete ===" >&2
