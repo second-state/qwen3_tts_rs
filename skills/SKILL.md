@@ -17,10 +17,19 @@ Generate speech audio from text, or clone a voice from a reference audio file.
 * `{baseDir}/scripts/models/Qwen3-TTS-12Hz-0.6B-CustomVoice` — Named speaker TTS (0.6B parameters).
 * `{baseDir}/scripts/models/Qwen3-TTS-12Hz-0.6B-Base` — Voice cloning from reference audio (0.6B parameters).
 
+## Reference Audio
+
+Pre-packaged reference audio files for voice cloning are available at `{baseDir}/scripts/reference_audio/`. Each speaker has two files:
+
+* `{baseDir}/scripts/reference_audio/<speaker_name>.wav` — Reference audio (mono 24kHz 16-bit WAV)
+* `{baseDir}/scripts/reference_audio/<speaker_name>.txt` — Transcript of the reference audio
+
+Available reference speakers: `trump`, `elon_musk`.
+
 ## When to Use Which Tool
 
 - **`tts`** — When the user wants to generate speech from text using a named speaker (Vivian, Ryan, etc.). Supports English and Chinese.
-- **`voice_clone`** — When the user wants to clone a specific voice from a reference audio file and generate new speech in that voice.
+- **`voice_clone`** — When the user wants to clone a specific voice from a reference audio file and generate new speech in that voice. If the user asks to clone a voice by speaker name (e.g., "speak like Trump", "use Elon Musk's voice"), check `{baseDir}/scripts/reference_audio/` for a matching `<speaker_name>.wav` and `<speaker_name>.txt` pair, and use ICL mode with both files.
 
 ## Environment Setup (Linux only)
 
@@ -150,17 +159,42 @@ When a reference text transcript is provided as the last argument, ICL (In-Conte
 
 ### 1. Determine the Task
 
-- If the user wants to generate speech from text with a named speaker, use `tts`.
+- If the user wants to generate speech from text with a named speaker (Vivian, Ryan, etc.), use `tts`.
 - If the user wants to clone a voice from an audio file, use `voice_clone`.
+- If the user asks to clone a voice by speaker name (e.g., "speak like Trump", "in Elon Musk's voice"), use `voice_clone` with the pre-packaged reference audio.
 
 ### 2. Prepare Input
 
 - For `tts`: Identify the text, speaker name, and language from the user's request. Default to `Vivian` and `english` if not specified.
-- For `voice_clone`: Ensure the reference audio is a mono 24kHz 16-bit WAV. Convert if needed using ffmpeg.
+- For `voice_clone` with a named reference speaker:
+  1. Look up `{baseDir}/scripts/reference_audio/<speaker_name>.wav` and `{baseDir}/scripts/reference_audio/<speaker_name>.txt`.
+  2. Read the transcript from the `.txt` file.
+  3. Use ICL mode by passing both the `.wav` file and the transcript text.
+- For `voice_clone` with a user-provided audio file: Ensure the reference audio is a mono 24kHz 16-bit WAV. Convert if needed using ffmpeg.
 
 ### 3. Run the Command
 
 Run the appropriate binary with `LD_LIBRARY_PATH` set (Linux only). Use the full paths to the binaries and model directories.
+
+### Example: Clone by Speaker Name
+
+If the user says "Say hello world in Trump's voice":
+
+```bash
+# Read the transcript
+REF_TEXT=$(cat {baseDir}/scripts/reference_audio/trump.txt)
+
+# Run voice clone with ICL mode (Linux)
+LD_LIBRARY_PATH={baseDir}/scripts/libtorch/lib:$LD_LIBRARY_PATH \
+  {baseDir}/scripts/voice_clone \
+  {baseDir}/scripts/models/Qwen3-TTS-12Hz-0.6B-Base \
+  {baseDir}/scripts/reference_audio/trump.wav \
+  "Hello world" \
+  english \
+  "$REF_TEXT"
+```
+
+On macOS, omit the `LD_LIBRARY_PATH` prefix.
 
 ### 4. Return the Output
 
