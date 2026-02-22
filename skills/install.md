@@ -17,7 +17,7 @@ SKILL_DIR="${HOME}/.openclaw/skills/audio_tts"
 mkdir -p "$SKILL_DIR"
 
 # Clone the repo
-git clone --depth 1 https://github.com/juntao/qwen3_tts_rs.git /tmp/qwen3-tts-repo
+git clone --depth 1 https://github.com/second-state/qwen3_tts_rs.git /tmp/qwen3-tts-repo
 cp -r /tmp/qwen3-tts-repo/skills/* "$SKILL_DIR"
 mkdir -p "$SKILL_DIR/scripts"
 cp -r /tmp/qwen3-tts-repo/reference_audio "$SKILL_DIR/scripts/reference_audio"
@@ -43,7 +43,7 @@ ls -la output.wav
 
 If automatic download fails, manually download the components:
 
-1. Go to https://github.com/juntao/qwen3_tts_rs/releases/latest
+1. Go to https://github.com/second-state/qwen3_tts_rs/releases/latest
 2. Download the tarball for your platform:
    - `qwen3-tts-linux-x86_64-cpu.tar.gz` (Linux x86_64 CPU)
    - `qwen3-tts-linux-x86_64-cuda.tar.gz` (Linux x86_64 with CUDA)
@@ -55,15 +55,40 @@ If automatic download fails, manually download the components:
    chmod +x ~/.openclaw/skills/audio_tts/scripts/tts
    chmod +x ~/.openclaw/skills/audio_tts/scripts/voice_clone
    ```
-5. For Linux, download libtorch (see README for URLs) and extract to `~/.openclaw/skills/audio_tts/scripts/libtorch/`
-6. Download models using `huggingface-cli` (see README)
+5. For macOS (MLX backend), copy `mlx.metallib` from the extracted tarball to `~/.openclaw/skills/audio_tts/scripts/` alongside the binaries. This file is required for Metal GPU acceleration.
+6. For Linux, download libtorch (see README for URLs) and extract to `~/.openclaw/skills/audio_tts/scripts/libtorch/`
+7. Copy reference audio files from the repo into the scripts directory:
+   ```bash
+   git clone --depth 1 https://github.com/second-state/qwen3_tts_rs.git /tmp/qwen3-tts-repo
+   cp -r /tmp/qwen3-tts-repo/reference_audio ~/.openclaw/skills/audio_tts/scripts/reference_audio
+   rm -rf /tmp/qwen3-tts-repo
+   ```
+8. Download the TTS models:
+   ```bash
+   pip install huggingface_hub transformers
+   MODELS_DIR=~/.openclaw/skills/audio_tts/scripts/models
+   mkdir -p "$MODELS_DIR"
+   huggingface-cli download Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice --local-dir "$MODELS_DIR/Qwen3-TTS-12Hz-0.6B-CustomVoice"
+   huggingface-cli download Qwen/Qwen3-TTS-12Hz-0.6B-Base --local-dir "$MODELS_DIR/Qwen3-TTS-12Hz-0.6B-Base"
+   ```
+9. Generate tokenizer.json files for each model:
+   ```bash
+   python3 -c "
+   from transformers import AutoTokenizer
+   for model in ['Qwen3-TTS-12Hz-0.6B-CustomVoice', 'Qwen3-TTS-12Hz-0.6B-Base']:
+       path = '$MODELS_DIR/' + model
+       tok = AutoTokenizer.from_pretrained(path, trust_remote_code=True)
+       tok.backend_tokenizer.save(path + '/tokenizer.json')
+       print(f'Saved {path}/tokenizer.json')
+   "
+   ```
 
 ## Troubleshooting
 
 ### Download Failed
 Check network connectivity:
 ```bash
-curl -I "https://github.com/juntao/qwen3_tts_rs/releases/latest"
+curl -I "https://github.com/second-state/qwen3_tts_rs/releases/latest"
 ```
 
 ### Unsupported Platform
