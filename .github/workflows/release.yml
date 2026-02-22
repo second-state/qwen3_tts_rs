@@ -91,6 +91,12 @@ jobs:
           DIST="qwen3-tts-${{ matrix.suffix }}"
           mkdir -p "$DIST"
           cp target/release/tts target/release/voice_clone "$DIST/"
+          METALLIB=$(find target/release/build -name 'mlx.metallib' -path '*/out/lib/*' | head -1)
+          if [ -z "$METALLIB" ]; then
+            echo "ERROR: mlx.metallib not found in build output"
+            exit 1
+          fi
+          cp "$METALLIB" "$DIST/"
           tar czf "$DIST.tar.gz" "$DIST"
 
       - name: Upload release asset
