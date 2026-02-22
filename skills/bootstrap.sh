@@ -4,7 +4,7 @@
 
 set -e
 
-REPO="juntao/qwen3_tts_rs"
+REPO="second-state/qwen3_tts_rs"
 SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPTS_DIR="${SKILL_DIR}/scripts"
 MODELS_DIR="${SCRIPTS_DIR}/models"
@@ -103,6 +103,12 @@ download_binaries() {
     cp "${temp_dir}"/qwen3-tts-*/tts "${SCRIPTS_DIR}/"
     cp "${temp_dir}"/qwen3-tts-*/voice_clone "${SCRIPTS_DIR}/"
     chmod +x "${SCRIPTS_DIR}/tts" "${SCRIPTS_DIR}/voice_clone"
+
+    # Copy mlx.metallib if present (macOS MLX builds)
+    if ls "${temp_dir}"/qwen3-tts-*/mlx.metallib &>/dev/null; then
+        cp "${temp_dir}"/qwen3-tts-*/mlx.metallib "${SCRIPTS_DIR}/"
+        echo "mlx.metallib installed to ${SCRIPTS_DIR}" >&2
+    fi
 
     rm -rf "$temp_dir"
     echo "Binaries installed to ${SCRIPTS_DIR}" >&2
