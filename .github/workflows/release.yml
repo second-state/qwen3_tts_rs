@@ -4,9 +4,6 @@ on:
   release:
     types: [published]
 
-permissions:
-  contents: write
-
 jobs:
   build:
     strategy:
@@ -14,40 +11,49 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            name: Linux x86_64 CPU
+            name: Linux x86_64
             backend: tch
-            suffix: linux-x86_64-cpu
+            asset-name: qwen3-tts-linux-x86_64
             libtorch-url: https://download.pytorch.org/libtorch/cpu/libtorch-cxx11-abi-shared-with-deps-2.7.1%2Bcpu.zip
             libtorch-archive: libtorch.zip
-          - os: ubuntu-latest
-            name: Linux x86_64 CUDA
-            backend: tch
-            suffix: linux-x86_64-cuda
-            libtorch-url: https://download.pytorch.org/libtorch/cu128/libtorch-cxx11-abi-shared-with-deps-2.7.1%2Bcu128.zip
-            libtorch-archive: libtorch.zip
           - os: ubuntu-24.04-arm
-            name: Linux ARM64 CPU
+            name: Linux ARM64
             backend: tch
-            suffix: linux-aarch64-cpu
+            asset-name: qwen3-tts-linux-aarch64
             libtorch-url: https://github.com/second-state/libtorch-releases/releases/download/v2.7.1/libtorch-cxx11-abi-aarch64-2.7.1.tar.gz
             libtorch-archive: libtorch.tar.gz
           - os: macos-latest
-            name: macOS ARM64 (MLX)
+            name: macOS ARM64
             backend: mlx
-            suffix: macos-arm64
+            asset-name: qwen3-tts-macos-aarch64
 
     runs-on: ${{ matrix.os }}
     name: Build (${{ matrix.name }})
 
+    permissions:
+      contents: write
+
     steps:
       - uses: actions/checkout@v4
+        if: matrix.backend == 'tch'
 
-      - name: Init MLX submodule
+      - uses: actions/checkout@v4
         if: matrix.backend == 'mlx'
-        run: git submodule update --init --recursive
+        with:
+          submodules: recursive
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-${{ runner.arch }}-${{ matrix.backend }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-${{ matrix.backend }}-cargo-registry-
 
       - name: Download libtorch
         if: matrix.backend == 'tch'
@@ -62,9 +68,9 @@ jobs:
             tar xzf ${{ matrix.libtorch-archive }}
           fi
 
-      - name: Set linker rpath-link (Linux only)
-        if: runner.os == 'Linux' && matrix.backend == 'tch'
-        run: echo "RUSTFLAGS=-C link-arg=-Wl,-rpath-link,${{ github.workspace }}/libtorch/lib" >> "$GITHUB_ENV"
+      - name: Set linker flags (Linux only)
+        if: matrix.backend == 'tch' && runner.os == 'Linux'
+        run: echo "RUSTFLAGS=-C link-arg=-Wl,-rpath-link,${{ github.workspace }}/libtorch/lib -C link-arg=-Wl,-rpath,\$ORIGIN/libtorch/lib" >> "$GITHUB_ENV"
 
       - name: Build (tch)
         if: matrix.backend == 'tch'
@@ -73,33 +79,23 @@ jobs:
           LIBTORCH_BYPASS_VERSION_CHECK: "1"
         run: cargo build --release
 
-      - name: Build (MLX)
+      - name: Build (mlx)
         if: matrix.backend == 'mlx'
         run: cargo build --release --no-default-features --features mlx
 
-      - name: Package release (tch)
-        if: matrix.backend == 'tch'
+      - name: Package release
         run: |
-          DIST="qwen3-tts-${{ matrix.suffix }}"
-          mkdir -p "$DIST"
-          cp target/release/tts target/release/voice_clone "$DIST/"
-          tar czf "$DIST.tar.gz" "$DIST"
-
-      - name: Package release (MLX)
-        if: matrix.backend == 'mlx'
-        run: |
-          DIST="qwen3-tts-${{ matrix.suffix }}"
-          mkdir -p "$DIST"
-          cp target/release/tts target/release/voice_clone "$DIST/"
-          METALLIB=$(find target/release/build -name 'mlx.metallib' -path '*/out/lib/*' | head -1)
-          if [ -z "$METALLIB" ]; then
-            echo "ERROR: mlx.metallib not found in build output"
-            exit 1
+          mkdir ${{ matrix.asset-name }}
+          cp target/release/tts target/release/voice_clone ${{ matrix.asset-name }}/
+          if [ "${{ matrix.backend }}" = "mlx" ]; then
+            cp target/release/build/qwen3_tts-*/out/lib/mlx.metallib ${{ matrix.asset-name }}/
           fi
-          cp "$METALLIB" "$DIST/"
-          tar czf "$DIST.tar.gz" "$DIST"
+          if [ "${{ matrix.backend }}" = "tch" ]; then
+            cp -r libtorch ${{ matrix.asset-name }}/libtorch
+          fi
+          zip -r ${{ matrix.asset-name }}.zip ${{ matrix.asset-name }}
 
       - name: Upload release asset
-        uses: softprops/action-gh-release@v2
-        with:
-          files: qwen3-tts-${{ matrix.suffix }}.tar.gz
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ github.event.release.tag_name }}" "${{ matrix.asset-name }}.zip"

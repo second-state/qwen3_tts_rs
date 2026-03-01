@@ -8,72 +8,225 @@ A Rust implementation of the Qwen3 Text-to-Speech (TTS) model inference. This pr
 - **tts** generates voice wav files from input text and named voice characters.
 - **voice_clone** generates voice wav files from input text and reference audio files.
 
-Those tools have two backend options:
+Supports two backends: **libtorch** (via the `tch` crate, cross-platform with optional CUDA) and **MLX** (Apple Silicon native via Metal GPU). Loads model weights directly from safetensors files and re-implements the complete neural network forward pass in Rust.
 
-- **tch-backend** (default) — uses [tch](https://github.com/LaurentMazare/tch-rs) / PyTorch libtorch. Works on Linux (CPU/CUDA) and macOS.
-- **mlx** — uses [Apple MLX](https://github.com/ml-explore/mlx) via mlx-c for native Metal GPU acceleration on Apple Silicon. No libtorch required.
+## Quick Start
 
-## Prerequisites
+### 1. Download the release
 
-### Backend setup
+Download the latest release for your platform from [GitHub Releases](https://github.com/second-state/qwen3_tts_rs/releases/latest) and extract. Each zip contains the `tts` and `voice_clone` binaries and all required runtime dependencies (libtorch for Linux, mlx.metallib for macOS).
 
-Choose **one** of the two backends below.
-
-#### Option A: tch-backend (default)
-
-The `tch` crate (v0.20) requires **libtorch 2.7.1**. Download the pre-built library for your platform:
-
-Linux x86 CPU:
+**macOS (Apple Silicon)**
 
 ```bash
+curl -LO https://github.com/second-state/qwen3_tts_rs/releases/latest/download/qwen3-tts-macos-aarch64.zip
+unzip qwen3-tts-macos-aarch64.zip
+# Contains: qwen3-tts-macos-aarch64/tts, qwen3-tts-macos-aarch64/voice_clone, qwen3-tts-macos-aarch64/mlx.metallib
+```
+
+**Linux x86_64**
+
+```bash
+curl -LO https://github.com/second-state/qwen3_tts_rs/releases/latest/download/qwen3-tts-linux-x86_64.zip
+unzip qwen3-tts-linux-x86_64.zip
+# Contains: qwen3-tts-linux-x86_64/tts, qwen3-tts-linux-x86_64/voice_clone, qwen3-tts-linux-x86_64/libtorch/
+```
+
+**Linux ARM64**
+
+```bash
+curl -LO https://github.com/second-state/qwen3_tts_rs/releases/latest/download/qwen3-tts-linux-aarch64.zip
+unzip qwen3-tts-linux-aarch64.zip
+# Contains: qwen3-tts-linux-aarch64/tts, qwen3-tts-linux-aarch64/voice_clone, qwen3-tts-linux-aarch64/libtorch/
+```
+
+> **CUDA GPU**: Pre-built releases use CPU libtorch. For CUDA acceleration, download the [CUDA 12.8 libtorch](#prerequisites) and [build from source](#build-from-source).
+
+### 2. Download model weights
+
+```bash
+pip install huggingface_hub transformers
+
+huggingface-cli download Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice --local-dir Qwen3-TTS-12Hz-0.6B-CustomVoice
+
+python3 -c "
+from transformers import AutoTokenizer
+tok = AutoTokenizer.from_pretrained('Qwen3-TTS-12Hz-0.6B-CustomVoice', trust_remote_code=True)
+tok.backend_tokenizer.save('Qwen3-TTS-12Hz-0.6B-CustomVoice/tokenizer.json')
+"
+```
+
+### 3. Generate speech
+
+```bash
+# macOS
+./qwen3-tts-macos-aarch64/tts Qwen3-TTS-12Hz-0.6B-CustomVoice "Hello world, this is a test." Vivian english
+
+# Linux
+./qwen3-tts-linux-x86_64/tts Qwen3-TTS-12Hz-0.6B-CustomVoice "Hello world, this is a test." Vivian english
+```
+
+Output: `output.wav` (24kHz audio)
+
+## Architecture
+
+The inference pipeline follows the Python reference implementation:
+
+```
+Text → Tokenizer → Dual-stream Embeddings → TalkerModel (28-layer Transformer)
+                                                    ↓
+                                              codec_head → Code 0
+                                                    ↓
+                                        CodePredictor (5-layer Transformer) → Codes 1-15
+                                                    ↓
+                                              Vocoder → 24kHz Waveform
+```
+
+Key components:
+
+| Module | Description |
+|--------|-------------|
+| `inference.rs` | TalkerModel + CodePredictor with dual-stream (text + codec) input |
+| `speaker_encoder.rs` | ECAPA-TDNN speaker encoder for extracting x-vectors from reference audio |
+| `audio_encoder.rs` | Mimi/SEANet speech tokenizer encoder for encoding audio to codec tokens (ICL mode) |
+| `layers.rs` | RMSNorm, RoPE, GQA Attention with QK-Norm, SwiGLU MLP |
+| `vocoder.rs` | ResidualVectorQuantizer, 8-layer pre-transformer, ConvNeXt upsampler, Snake decoder |
+| `config.rs` | Model configuration deserialization from `config.json` |
+| `audio.rs` | WAV file I/O and audio processing utilities |
+
+## Supported Models
+
+| Model | Parameters | HuggingFace |
+|-------|-----------|-------------|
+| Qwen3-TTS-12Hz-0.6B-CustomVoice | 0.6B | [Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice](https://huggingface.co/Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice) |
+| Qwen3-TTS-12Hz-1.7B-CustomVoice | 1.7B | [Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice](https://huggingface.co/Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice) |
+| Qwen3-TTS-12Hz-0.6B-Base | 0.6B | [Qwen/Qwen3-TTS-12Hz-0.6B-Base](https://huggingface.co/Qwen/Qwen3-TTS-12Hz-0.6B-Base) |
+
+## Usage
+
+### Text-to-Speech
+
+```bash
+tts <model_path> [text] [speaker] [language] [instruction]
+```
+
+Example:
+
+```bash
+tts Qwen3-TTS-12Hz-0.6B-CustomVoice \
+  "Hello world, this is a test." \
+  Vivian \
+  english
+```
+
+### Instruction-Controlled Voice (1.7B CustomVoice)
+
+The 1.7B CustomVoice model supports instruction control to modulate voice characteristics like emotion, speaking style, and pace:
+
+```bash
+tts Qwen3-TTS-12Hz-1.7B-CustomVoice \
+  "Breaking news! There has been a major development." \
+  Vivian \
+  english \
+  "Speak in an urgent and excited voice"
+```
+
+Other instruction examples:
+- `"Speak happily and joyfully"`
+- `"Speak slowly and calmly"`
+- `"Speak in a whisper"`
+- `"Speak with a sad tone"`
+
+### Voice Cloning
+
+Clone a voice from a reference audio file using the Base model:
+
+```bash
+voice_clone <model_path> <ref_audio> [text] [language] [ref_text]
+```
+
+**Preparing reference audio:** The reference audio must be a mono 24kHz 16-bit WAV file. Use ffmpeg to convert from other formats:
+
+```bash
+ffmpeg -i input.m4a -ac 1 -ar 24000 -sample_fmt s16 reference.wav
+```
+
+Sample reference audio files are provided in the `reference_audio/` directory.
+
+**X-vector only mode** (no reference text):
+
+```bash
+voice_clone \
+  Qwen3-TTS-12Hz-0.6B-Base \
+  reference_audio/trump.wav \
+  "Hello world, this is a voice cloning test." \
+  english
+```
+
+**ICL mode** (with reference text, higher quality):
+
+```bash
+voice_clone \
+  Qwen3-TTS-12Hz-0.6B-Base \
+  reference_audio/trump.wav \
+  "Hello world, this is a voice cloning test." \
+  english \
+  "Angered and appalled millions of Americans across the political spectrum"
+```
+
+When a reference text transcript is provided as the 5th argument, ICL (In-Context Learning) mode is used, which encodes the reference audio into codec tokens and conditions generation on both the speaker embedding and the reference audio/text. This typically produces higher fidelity voice cloning compared to x-vector only mode.
+
+Output is written to `output_voice_clone.wav`.
+
+### Available speakers (CustomVoice 0.6B)
+
+Vivian, Serena, Ryan, Aiden, Uncle_fu, Ono_anna, Sohee, Eric, Dylan. See the model's `config.json` `spk_id` field for the full list.
+
+### Available languages
+
+`english`, `chinese`, and others defined in the model config.
+
+## Build from Source
+
+### Backend
+
+Choose one backend:
+
+| Backend | Feature flag | Platforms | GPU |
+|---------|-------------|-----------|-----|
+| libtorch | `tch-backend` (default) | Linux, macOS | CUDA |
+| MLX | `mlx` | macOS Apple Silicon | Metal |
+
+### Prerequisites
+
+**libtorch** (for `tch-backend`): Download and extract for your platform:
+
+```bash
+# Linux x86_64 (CPU)
 curl -LO https://download.pytorch.org/libtorch/cpu/libtorch-cxx11-abi-shared-with-deps-2.7.1%2Bcpu.zip
 unzip libtorch-cxx11-abi-shared-with-deps-2.7.1+cpu.zip
-```
 
-Linux ARM CPU (download from [second-state/libtorch-releases](https://github.com/second-state/libtorch-releases/releases)):
-
-```bash
+# Linux ARM64 (CPU)
 curl -LO https://github.com/second-state/libtorch-releases/releases/download/v2.7.1/libtorch-cxx11-abi-aarch64-2.7.1.tar.gz
 tar xzf libtorch-cxx11-abi-aarch64-2.7.1.tar.gz
-```
 
-Linux x86 with CUDA 12.8:
-
-```bash
+# Linux x86_64 (CUDA 12.8)
 curl -LO https://download.pytorch.org/libtorch/cu128/libtorch-cxx11-abi-shared-with-deps-2.7.1%2Bcu128.zip
 unzip libtorch-cxx11-abi-shared-with-deps-2.7.1+cu128.zip
-```
 
-macOS on Apple Silicon (M-series):
-
-```bash
+# macOS Apple Silicon
 curl -LO https://download.pytorch.org/libtorch/cpu/libtorch-macos-arm64-2.7.1.zip
 unzip libtorch-macos-arm64-2.7.1.zip
 ```
 
-Then set environment variables (add to `~/.zprofile` or `~/.bash_profile` to persist):
+Set environment variables:
 
 ```bash
 export LIBTORCH=$(pwd)/libtorch
-export LD_LIBRARY_PATH=$(pwd)/libtorch/lib:$LD_LIBRARY_PATH
+export LIBTORCH_BYPASS_VERSION_CHECK=1
 ```
 
 Alternatively, if you already have Python/PyTorch, see [Troubleshooting: Using pip-installed PyTorch](#using-pip-installed-pytorch).
-
-#### Option B: MLX backend (macOS Apple Silicon only)
-
-The MLX backend requires:
-- Apple Silicon Mac (M1/M2/M3/M4)
-- Xcode (full installation, not just Command Line Tools — needed for the Metal shader compiler)
-- CMake (`brew install cmake`)
-
-Initialize the mlx-c submodule:
-
-```bash
-git submodule update --init --recursive
-```
-
-No libtorch or PyTorch installation is needed.
 
 ### Download the model
 
@@ -110,22 +263,21 @@ for model in ['Qwen3-TTS-12Hz-0.6B-CustomVoice', 'Qwen3-TTS-12Hz-0.6B-Base', 'Qw
 "
 ```
 
-## Build
+### libtorch backend (default)
 
 ```bash
-git clone https://github.com/juntao/qwen3_tts_rs.git
+git clone https://github.com/second-state/qwen3_tts_rs.git
 cd qwen3_tts_rs
-```
-
-**tch-backend (default):**
-
-```bash
 cargo build --release
 ```
 
-**MLX backend:**
+### MLX backend (macOS Apple Silicon)
+
+Requires Apple Silicon Mac, Xcode (full installation for Metal shader compiler), and CMake (`brew install cmake`).
 
 ```bash
+git clone https://github.com/second-state/qwen3_tts_rs.git
+cd qwen3_tts_rs
 git submodule update --init --recursive
 cargo build --release --no-default-features --features mlx
 ```
@@ -133,94 +285,6 @@ cargo build --release --no-default-features --features mlx
 This produces the CLI tools in `target/release/`:
 - `tts` — text-to-speech generation
 - `voice_clone` — voice cloning from reference audio
-
-## Run
-
-### Text-to-Speech
-
-```bash
-./target/release/tts <model_path> [text] [speaker] [language] [instruction]
-```
-
-Example:
-
-```bash
-./target/release/tts \
-  models/Qwen3-TTS-12Hz-0.6B-CustomVoice \
-  "Hello world, this is a test." \
-  Vivian \
-  english
-```
-
-This generates an `output.wav` file with 24kHz audio.
-
-### Instruction-Controlled Voice (1.7B CustomVoice)
-
-The 1.7B CustomVoice model supports instruction control to modulate voice characteristics like emotion, speaking style, and pace:
-
-```bash
-./target/release/tts \
-  models/Qwen3-TTS-12Hz-1.7B-CustomVoice \
-  "Breaking news! There has been a major development." \
-  Vivian \
-  english \
-  "Speak in an urgent and excited voice"
-```
-
-Other instruction examples:
-- `"Speak happily and joyfully"`
-- `"Speak slowly and calmly"`
-- `"Speak in a whisper"`
-- `"Speak with a sad tone"`
-
-### Voice Cloning
-
-Clone a voice from a reference audio file using the Base model:
-
-```bash
-./target/release/voice_clone <model_path> <ref_audio> [text] [language] [ref_text]
-```
-
-**Preparing reference audio:** The reference audio must be a mono 24kHz 16-bit WAV file. Use ffmpeg to convert from other formats:
-
-```bash
-ffmpeg -i input.m4a -ac 1 -ar 24000 -sample_fmt s16 reference.wav
-```
-
-Sample reference audio files are provided in the `reference_audio/` directory.
-
-**X-vector only mode** (no reference text):
-
-```bash
-./target/release/voice_clone \
-  models/Qwen3-TTS-12Hz-0.6B-Base \
-  reference_audio/trump.wav \
-  "Hello world, this is a voice cloning test." \
-  english
-```
-
-**ICL mode** (with reference text, higher quality):
-
-```bash
-./target/release/voice_clone \
-  models/Qwen3-TTS-12Hz-0.6B-Base \
-  reference_audio/trump.wav \
-  "Hello world, this is a voice cloning test." \
-  english \
-  "Angered and appalled millions of Americans across the political spectrum"
-```
-
-When a reference text transcript is provided as the 5th argument, ICL (In-Context Learning) mode is used, which encodes the reference audio into codec tokens and conditions generation on both the speaker embedding and the reference audio/text. This typically produces higher fidelity voice cloning compared to x-vector only mode.
-
-Output is written to `output_voice_clone.wav`.
-
-### Available speakers (CustomVoice 0.6B)
-
-Vivian, Serena, Ryan, Aiden, Uncle_fu, Ono_anna, Sohee, Eric, Dylan. See the model's `config.json` `spk_id` field for the full list.
-
-### Available languages
-
-`english`, `chinese`, and others defined in the model config.
 
 ## API Usage
 
@@ -439,32 +503,6 @@ write_wav_file("output.wav", &samples, sample_rate)?;
 // Resample between sample rates
 let resampled = resample(&samples, 44100, 24000)?;
 ```
-
-## Architecture
-
-The inference pipeline follows the Python reference implementation:
-
-```
-Text → Tokenizer → Dual-stream Embeddings → TalkerModel (28-layer Transformer)
-                                                    ↓
-                                              codec_head → Code 0
-                                                    ↓
-                                        CodePredictor (5-layer Transformer) → Codes 1-15
-                                                    ↓
-                                              Vocoder → 24kHz Waveform
-```
-
-Key components:
-
-| Module | Description |
-|--------|-------------|
-| `inference.rs` | TalkerModel + CodePredictor with dual-stream (text + codec) input |
-| `speaker_encoder.rs` | ECAPA-TDNN speaker encoder for extracting x-vectors from reference audio |
-| `audio_encoder.rs` | Mimi/SEANet speech tokenizer encoder for encoding audio to codec tokens (ICL mode) |
-| `layers.rs` | RMSNorm, RoPE, GQA Attention with QK-Norm, SwiGLU MLP |
-| `vocoder.rs` | ResidualVectorQuantizer, 8-layer pre-transformer, ConvNeXt upsampler, Snake decoder |
-| `config.rs` | Model configuration deserialization from `config.json` |
-| `audio.rs` | WAV file I/O and audio processing utilities |
 
 ## Dependencies
 
