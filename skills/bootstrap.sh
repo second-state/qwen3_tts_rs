@@ -97,6 +97,12 @@ download_release() {
         cp -r "${temp_dir}/${asset_name}/libtorch" "${SCRIPTS_DIR}/libtorch"
     fi
 
+    # Copy pre-generated tokenizers if present
+    if [ -d "${temp_dir}/${asset_name}/tokenizers" ]; then
+        rm -rf "${SCRIPTS_DIR}/tokenizers"
+        cp -r "${temp_dir}/${asset_name}/tokenizers" "${SCRIPTS_DIR}/tokenizers"
+    fi
+
     rm -rf "$temp_dir"
     echo "Release installed to ${SCRIPTS_DIR}" >&2
 }
@@ -106,32 +112,35 @@ download_models() {
 
     mkdir -p "${MODELS_DIR}"
 
-    # Ensure huggingface_hub and transformers are available
-    if ! command -v huggingface-cli &>/dev/null; then
-        echo "Installing huggingface_hub and transformers..." >&2
-        pip install -q huggingface_hub transformers
-    fi
-
     for model in Qwen3-TTS-12Hz-0.6B-CustomVoice Qwen3-TTS-12Hz-0.6B-Base; do
         local model_dir="${MODELS_DIR}/${model}"
-        if [ ! -d "$model_dir" ] || [ -z "$(ls -A "$model_dir" 2>/dev/null)" ]; then
-            echo "Downloading ${model}..." >&2
-            huggingface-cli download "Qwen/${model}" --local-dir "$model_dir"
-        else
+        if [ -d "$model_dir" ] && [ -n "$(ls -A "$model_dir" 2>/dev/null)" ]; then
             echo "${model} already downloaded, skipping." >&2
-        fi
-    done
+        else
+            echo "Downloading ${model}..." >&2
+            mkdir -p "$model_dir"
 
-    # Generate tokenizer.json files
-    echo "Generating tokenizer.json files..." >&2
-    python3 -c "
-from transformers import AutoTokenizer
-for model in ['Qwen3-TTS-12Hz-0.6B-CustomVoice', 'Qwen3-TTS-12Hz-0.6B-Base']:
-    path = '${MODELS_DIR}/' + model
-    tok = AutoTokenizer.from_pretrained(path, trust_remote_code=True)
-    tok.backend_tokenizer.save(path + '/tokenizer.json')
-    print(f'Saved {path}/tokenizer.json')
-"
+            # List files via HuggingFace API and download each one
+            local api_url="https://huggingface.co/api/models/Qwen/${model}"
+            local hf_url="https://huggingface.co/Qwen/${model}/resolve/main"
+            local files
+            files=$(curl -fSL "$api_url" | grep -o '"rfilename":"[^"]*"' | sed 's/"rfilename":"//;s/"//')
+
+            for file in $files; do
+                # Skip markdown and git files
+                case "$file" in
+                    .gitattributes|README.md) continue ;;
+                esac
+                echo "  ${file}..." >&2
+                mkdir -p "${model_dir}/$(dirname "$file")"
+                curl -fSL -o "${model_dir}/${file}" "${hf_url}/${file}"
+            done
+            echo "${model} downloaded." >&2
+        fi
+
+        # Copy pre-generated tokenizer from the release asset
+        cp "${SCRIPTS_DIR}/tokenizers/${model}/tokenizer.json" "${model_dir}/tokenizer.json"
+    done
 
     echo "Models installed to ${MODELS_DIR}" >&2
 }
