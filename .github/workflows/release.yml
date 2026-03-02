@@ -93,23 +93,27 @@ jobs:
       - name: Generate tokenizers
         run: |
           pip install huggingface_hub transformers
-          models=(
-            Qwen3-TTS-12Hz-0.6B-CustomVoice
-            Qwen3-TTS-12Hz-0.6B-Base
-            Qwen3-TTS-12Hz-1.7B-CustomVoice
-            Qwen3-TTS-12Hz-1.7B-Base
-            Qwen3-TTS-12Hz-1.7B-VoiceDesign
-          )
-          for model in "${models[@]}"; do
-            mkdir -p "tokenizers/${model}"
-            python3 -m huggingface_hub.cli download "Qwen/${model}" --local-dir "_hf_tmp/${model}"
-            python3 -c "
+          python3 -c "
+          from huggingface_hub import snapshot_download
           from transformers import AutoTokenizer
-          tok = AutoTokenizer.from_pretrained('_hf_tmp/${model}', trust_remote_code=True)
-          tok.backend_tokenizer.save('tokenizers/${model}/tokenizer.json')
-          print('Saved tokenizers/${model}/tokenizer.json')
+          import os
+
+          models = [
+              'Qwen3-TTS-12Hz-0.6B-CustomVoice',
+              'Qwen3-TTS-12Hz-0.6B-Base',
+              'Qwen3-TTS-12Hz-1.7B-CustomVoice',
+              'Qwen3-TTS-12Hz-1.7B-Base',
+              'Qwen3-TTS-12Hz-1.7B-VoiceDesign',
+          ]
+          for model in models:
+              tmp_dir = f'_hf_tmp/{model}'
+              tok_dir = f'tokenizers/{model}'
+              os.makedirs(tok_dir, exist_ok=True)
+              snapshot_download(f'Qwen/{model}', local_dir=tmp_dir)
+              tok = AutoTokenizer.from_pretrained(tmp_dir, trust_remote_code=True)
+              tok.backend_tokenizer.save(f'{tok_dir}/tokenizer.json')
+              print(f'Saved {tok_dir}/tokenizer.json')
           "
-          done
           rm -rf _hf_tmp
 
       - name: Package release
