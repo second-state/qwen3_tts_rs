@@ -188,47 +188,15 @@ Vivian, Serena, Ryan, Aiden, Uncle_fu, Ono_anna, Sohee, Eric, Dylan. See the mod
 
 ## Build from Source
 
-### Backend
-
-Choose one backend:
-
-| Backend | Feature flag | Platforms | GPU |
-|---------|-------------|-----------|-----|
-| libtorch | `tch-backend` (default) | Linux, macOS | CUDA |
-| MLX | `mlx` | macOS Apple Silicon | Metal |
-
 ### Prerequisites
 
-**libtorch** (for `tch-backend`): Download and extract for your platform:
+Install Python tools for downloading models and generating tokenizer files:
 
 ```bash
-# Linux x86_64 (CPU)
-curl -LO https://download.pytorch.org/libtorch/cpu/libtorch-cxx11-abi-shared-with-deps-2.7.1%2Bcpu.zip
-unzip libtorch-cxx11-abi-shared-with-deps-2.7.1+cpu.zip
-
-# Linux ARM64 (CPU)
-curl -LO https://github.com/second-state/libtorch-releases/releases/download/v2.7.1/libtorch-cxx11-abi-aarch64-2.7.1.tar.gz
-tar xzf libtorch-cxx11-abi-aarch64-2.7.1.tar.gz
-
-# Linux x86_64 (CUDA 12.8)
-curl -LO https://download.pytorch.org/libtorch/cu128/libtorch-cxx11-abi-shared-with-deps-2.7.1%2Bcu128.zip
-unzip libtorch-cxx11-abi-shared-with-deps-2.7.1+cu128.zip
-
-# macOS Apple Silicon
-curl -LO https://download.pytorch.org/libtorch/cpu/libtorch-macos-arm64-2.7.1.zip
-unzip libtorch-macos-arm64-2.7.1.zip
+pip install huggingface_hub transformers
 ```
 
-Set environment variables:
-
-```bash
-export LIBTORCH=$(pwd)/libtorch
-export LIBTORCH_BYPASS_VERSION_CHECK=1
-```
-
-Alternatively, if you already have Python/PyTorch, see [Troubleshooting: Using pip-installed PyTorch](#using-pip-installed-pytorch).
-
-### Download the model
+#### Download the model
 
 Download the Qwen3-TTS model weights. For speech synthesis with named speakers (CustomVoice 0.6B):
 
@@ -248,7 +216,7 @@ For voice cloning from reference audio (Base):
 huggingface-cli download Qwen/Qwen3-TTS-12Hz-0.6B-Base --local-dir models/Qwen3-TTS-12Hz-0.6B-Base
 ```
 
-### Generate tokenizer.json
+#### Generate tokenizer.json
 
 The Rust `tokenizers` crate requires a `tokenizer.json` file with the full tokenizer configuration (including the pre-tokenizer). Generate it from the Python tokenizer for each model you downloaded:
 
@@ -263,23 +231,66 @@ for model in ['Qwen3-TTS-12Hz-0.6B-CustomVoice', 'Qwen3-TTS-12Hz-0.6B-Base', 'Qw
 "
 ```
 
-### libtorch backend (default)
+### Build for macOS (MLX)
+
+Requires Apple Silicon Mac, Xcode (full installation for Metal shader compiler), and CMake.
+
+Install dependencies:
 
 ```bash
-git clone https://github.com/second-state/qwen3_tts_rs.git
-cd qwen3_tts_rs
-cargo build --release
+brew install cmake ffmpeg
 ```
 
-### MLX backend (macOS Apple Silicon)
-
-Requires Apple Silicon Mac, Xcode (full installation for Metal shader compiler), and CMake (`brew install cmake`).
+Build:
 
 ```bash
 git clone https://github.com/second-state/qwen3_tts_rs.git
 cd qwen3_tts_rs
 git submodule update --init --recursive
 cargo build --release --no-default-features --features mlx
+```
+
+### Build for Linux (libtorch)
+
+#### Download libtorch
+
+Download and extract libtorch for your platform:
+
+```bash
+# Linux x86_64 (CPU)
+curl -LO https://download.pytorch.org/libtorch/cpu/libtorch-cxx11-abi-shared-with-deps-2.7.1%2Bcpu.zip
+unzip libtorch-cxx11-abi-shared-with-deps-2.7.1+cpu.zip
+
+# Linux ARM64 (CPU)
+curl -LO https://github.com/second-state/libtorch-releases/releases/download/v2.7.1/libtorch-cxx11-abi-aarch64-2.7.1.tar.gz
+tar xzf libtorch-cxx11-abi-aarch64-2.7.1.tar.gz
+
+# Linux x86_64 (CUDA 12.8)
+curl -LO https://download.pytorch.org/libtorch/cu128/libtorch-cxx11-abi-shared-with-deps-2.7.1%2Bcu128.zip
+unzip libtorch-cxx11-abi-shared-with-deps-2.7.1+cu128.zip
+```
+
+#### Set environment variables
+
+```bash
+export LIBTORCH=$(pwd)/libtorch
+export LIBTORCH_BYPASS_VERSION_CHECK=1
+```
+
+Alternatively, if you already have Python/PyTorch, see [Troubleshooting: Using pip-installed PyTorch](#using-pip-installed-pytorch).
+
+#### Install dependencies
+
+```bash
+sudo apt-get install -y ffmpeg
+```
+
+#### Build
+
+```bash
+git clone https://github.com/second-state/qwen3_tts_rs.git
+cd qwen3_tts_rs
+cargo build --release
 ```
 
 This produces the CLI tools in `target/release/`:

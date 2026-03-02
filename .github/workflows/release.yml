@@ -42,18 +42,11 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Delete Cargo.lock
+        run: rm -f Cargo.lock
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo registry
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-          key: ${{ runner.os }}-${{ runner.arch }}-${{ matrix.backend }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-${{ matrix.backend }}-cargo-registry-
 
       - name: Download libtorch
         if: matrix.backend == 'tch'
