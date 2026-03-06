@@ -13,8 +13,8 @@ jobs:
           - os: ubuntu-latest
             name: Linux x86_64 (tch)
             backend: tch
-            libtorch-url: https://download.pytorch.org/libtorch/cpu/libtorch-cxx11-abi-shared-with-deps-2.7.1%2Bcpu.zip
-            libtorch-archive: libtorch.zip
+            libtorch-url: https://github.com/second-state/libtorch-releases/releases/download/v2.7.1/libtorch-cxx11-abi-x86_64-2.7.1.tar.gz
+            libtorch-archive: libtorch.tar.gz
           - os: ubuntu-24.04-arm
             name: Linux ARM64 (tch)
             backend: tch

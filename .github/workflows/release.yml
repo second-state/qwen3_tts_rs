@@ -14,23 +14,28 @@ jobs:
             name: Linux x86_64
             backend: tch
             asset-name: qwen3-tts-linux-x86_64
-            libtorch-url: https://download.pytorch.org/libtorch/cpu/libtorch-cxx11-abi-shared-with-deps-2.7.1%2Bcpu.zip
-            libtorch-archive: libtorch.zip
-            bundle-libtorch: true
+            libtorch-url: https://github.com/second-state/libtorch-releases/releases/download/v2.7.1/libtorch-cxx11-abi-x86_64-2.7.1.tar.gz
+            libtorch-archive: libtorch.tar.gz
           - os: ubuntu-latest
             name: Linux x86_64 (CUDA)
             backend: tch
             asset-name: qwen3-tts-linux-x86_64-cuda
-            libtorch-url: https://download.pytorch.org/libtorch/cu128/libtorch-cxx11-abi-shared-with-deps-2.7.1%2Bcu128.zip
-            libtorch-archive: libtorch.zip
-            bundle-libtorch: false
+            libtorch-url: https://github.com/second-state/libtorch-releases/releases/download/v2.7.1/libtorch-cxx11-abi-x86_64-cuda12.6-2.7.1.tar.gz
+            libtorch-archive: libtorch.tar.gz
+            needs-cuda: true
           - os: ubuntu-24.04-arm
             name: Linux ARM64
             backend: tch
             asset-name: qwen3-tts-linux-aarch64
             libtorch-url: https://github.com/second-state/libtorch-releases/releases/download/v2.7.1/libtorch-cxx11-abi-aarch64-2.7.1.tar.gz
             libtorch-archive: libtorch.tar.gz
-            bundle-libtorch: true
+          - os: ubuntu-24.04-arm
+            name: Linux ARM64 (CUDA/Jetson)
+            backend: tch
+            asset-name: qwen3-tts-linux-aarch64-cuda
+            libtorch-url: https://github.com/second-state/libtorch-releases/releases/download/v2.7.1/libtorch-cxx11-abi-aarch64-cuda12.6-2.7.1.tar.gz
+            libtorch-archive: libtorch.tar.gz
+            needs-cuda: true
           - os: macos-latest
             name: macOS ARM64
             backend: mlx
@@ -57,22 +62,39 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Install CUDA toolkit and BLAS (ARM64, for linking)
+        if: matrix.needs-cuda && runner.arch == 'ARM64'
+        run: |
+          wget -q https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/sbsa/cuda-keyring_1.1-1_all.deb
+          sudo dpkg -i cuda-keyring_1.1-1_all.deb
+          sudo apt-get update
+          sudo apt-get install -y cuda-toolkit-12-6 libopenblas-dev
+
+      - name: Install CUDA toolkit (x86_64, for linking)
+        if: matrix.needs-cuda && runner.arch == 'X64'
+        run: |
+          wget -q https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb
+          sudo dpkg -i cuda-keyring_1.1-1_all.deb
+          sudo apt-get update
+          sudo apt-get install -y cuda-toolkit-12-6
+
       - name: Download libtorch
         if: matrix.backend == 'tch'
         run: curl -Lo ${{ matrix.libtorch-archive }} "${{ matrix.libtorch-url }}"
 
       - name: Extract libtorch
         if: matrix.backend == 'tch'
-        run: |
-          if [[ "${{ matrix.libtorch-archive }}" == *.zip ]]; then
-            unzip -q ${{ matrix.libtorch-archive }}
-          else
-            tar xzf ${{ matrix.libtorch-archive }}
-          fi
+        run: tar xzf ${{ matrix.libtorch-archive }}
 
       - name: Set linker flags (Linux only)
         if: matrix.backend == 'tch' && runner.os == 'Linux'
-        run: echo "RUSTFLAGS=-C link-arg=-Wl,-rpath-link,${{ github.workspace }}/libtorch/lib -C link-arg=-Wl,-rpath,\$ORIGIN/libtorch/lib" >> "$GITHUB_ENV"
+        run: |
+          FLAGS="-C link-arg=-Wl,-rpath-link,${{ github.workspace }}/libtorch/lib -C link-arg=-Wl,-rpath,\$ORIGIN/libtorch/lib"
+          if [ "${{ matrix.needs-cuda }}" = "true" ]; then
+            FLAGS="$FLAGS -C link-arg=-Wl,-rpath-link,/usr/local/cuda/lib64"
+            echo "LD_LIBRARY_PATH=/usr/local/cuda/lib64:${LD_LIBRARY_PATH}" >> "$GITHUB_ENV"
+          fi
+          echo "RUSTFLAGS=$FLAGS" >> "$GITHUB_ENV"
 
       - name: Build (tch)
         if: matrix.backend == 'tch'
@@ -124,7 +146,7 @@ jobs:
           if [ "${{ matrix.backend }}" = "mlx" ]; then
             cp target/release/build/qwen3_tts-*/out/lib/mlx.metallib ${{ matrix.asset-name }}/
           fi
-          if [ "${{ matrix.bundle-libtorch }}" = "true" ]; then
+          if [ "${{ matrix.backend }}" = "tch" ]; then
             cp -r libtorch ${{ matrix.asset-name }}/libtorch
           fi
           zip -r ${{ matrix.asset-name }}.zip ${{ matrix.asset-name }}

@@ -1,6 +1,6 @@
 #!/bin/bash
 # Bootstrap script for Qwen3 TTS skill
-# Downloads platform-specific release (binaries + runtime deps) and models
+# Downloads platform-specific release (binaries + bundled libtorch) and models
 
 set -e
 
@@ -33,15 +33,27 @@ detect_platform() {
     echo "${os}-${arch}"
 }
 
+has_nvidia_gpu() {
+    command -v nvidia-smi &>/dev/null && nvidia-smi --query-gpu=driver_version --format=csv,noheader &>/dev/null
+}
+
 get_asset_name() {
     local platform="$1"
 
     case "$platform" in
     linux-x86_64)
-        echo "qwen3-tts-linux-x86_64"
+        if has_nvidia_gpu; then
+            echo "qwen3-tts-linux-x86_64-cuda"
+        else
+            echo "qwen3-tts-linux-x86_64"
+        fi
         ;;
     linux-aarch64)
-        echo "qwen3-tts-linux-aarch64"
+        if has_nvidia_gpu; then
+            echo "qwen3-tts-linux-aarch64-cuda"
+        else
+            echo "qwen3-tts-linux-aarch64"
+        fi
         ;;
     darwin-aarch64)
         echo "qwen3-tts-macos-aarch64"
@@ -91,7 +103,7 @@ download_release() {
         cp "${temp_dir}/${asset_name}/mlx.metallib" "${SCRIPTS_DIR}/mlx.metallib"
     fi
 
-    # Copy libtorch if present (Linux tch backend)
+    # Copy bundled libtorch if present (all Linux builds)
     if [ -d "${temp_dir}/${asset_name}/libtorch" ]; then
         rm -rf "${SCRIPTS_DIR}/libtorch"
         cp -r "${temp_dir}/${asset_name}/libtorch" "${SCRIPTS_DIR}/libtorch"
@@ -120,14 +132,12 @@ download_models() {
             echo "Downloading ${model}..." >&2
             mkdir -p "$model_dir"
 
-            # List files via HuggingFace API and download each one
             local api_url="https://huggingface.co/api/models/Qwen/${model}"
             local hf_url="https://huggingface.co/Qwen/${model}/resolve/main"
             local files
             files=$(curl -fSL "$api_url" | grep -o '"rfilename":"[^"]*"' | sed 's/"rfilename":"//;s/"//')
 
             for file in $files; do
-                # Skip markdown and git files
                 case "$file" in
                     .gitattributes|README.md) continue ;;
                 esac

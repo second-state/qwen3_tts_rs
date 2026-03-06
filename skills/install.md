@@ -45,8 +45,10 @@ If automatic download fails, manually download the components:
 
 1. Go to https://github.com/second-state/qwen3_tts_rs/releases/latest
 2. Download the zip for your platform:
-   - `qwen3-tts-linux-x86_64.zip` (Linux x86_64, includes libtorch)
-   - `qwen3-tts-linux-aarch64.zip` (Linux ARM64, includes libtorch)
+   - `qwen3-tts-linux-x86_64.zip` (Linux x86_64 CPU, includes libtorch)
+   - `qwen3-tts-linux-x86_64-cuda.zip` (Linux x86_64 CUDA, includes libtorch)
+   - `qwen3-tts-linux-aarch64.zip` (Linux ARM64 CPU, includes libtorch)
+   - `qwen3-tts-linux-aarch64-cuda.zip` (Linux ARM64 CUDA / Jetson, includes libtorch)
    - `qwen3-tts-macos-aarch64.zip` (macOS Apple Silicon, includes mlx.metallib)
 3. Extract to `~/.openclaw/skills/audio_tts/scripts/`:
    ```bash

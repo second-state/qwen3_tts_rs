@@ -1,5 +1,5 @@
 #!/bin/bash
-# Installer for Qwen3 TTS Rust — downloads binaries, models, and reference audio
+# Installer for Qwen3 TTS Rust — downloads binaries (with bundled libtorch), models, and reference audio
 # Usage: curl -sSf https://raw.githubusercontent.com/second-state/qwen3_tts_rs/main/install.sh | bash
 
 set -e
@@ -43,24 +43,15 @@ detect_platform() {
             ;;
     esac
 
-    # CUDA detection (Linux x86_64 only)
-    USE_CUDA=""
-    if [ "$OS" = "linux" ] && [ "$ARCH" = "x86_64" ]; then
+    # CUDA detection (Linux only — macOS uses Metal via MLX)
+    CUDA_DRIVER=""
+    if [ "$OS" = "linux" ]; then
         if command -v nvidia-smi &>/dev/null && nvidia-smi --query-gpu=driver_version --format=csv,noheader &>/dev/null; then
             CUDA_DRIVER=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -1)
-            info "NVIDIA GPU detected (driver ${CUDA_DRIVER})."
-            echo "  1) CUDA 12.8 (Recommended)"
-            echo "  2) CPU only"
-            printf "Select variant [1]: "
-            read -r variant </dev/tty
-            variant="${variant:-1}"
-            if [ "$variant" = "1" ]; then
-                USE_CUDA="1"
-            fi
         fi
     fi
 
-    info "Platform: ${OS} ${ARCH}${USE_CUDA:+ (CUDA)}"
+    info "Platform: ${OS} ${ARCH}${CUDA_DRIVER:+ (NVIDIA driver ${CUDA_DRIVER})}"
 }
 
 # ---------------------------------------------------------------------------
@@ -70,13 +61,41 @@ resolve_asset() {
     case "${OS}-${ARCH}" in
         darwin-aarch64)  ASSET_NAME="qwen3-tts-macos-aarch64" ;;
         linux-x86_64)
-            if [ -n "$USE_CUDA" ]; then
-                ASSET_NAME="qwen3-tts-linux-x86_64-cuda"
+            if [ -n "$CUDA_DRIVER" ]; then
+                info "NVIDIA GPU detected. Choose build variant:"
+                echo "  1) CUDA  (recommended for GPU)"
+                echo "  2) CPU only"
+                printf "Select variant [1]: "
+                read -r variant </dev/tty
+                variant="${variant:-1}"
+                case "$variant" in
+                    1) ASSET_NAME="qwen3-tts-linux-x86_64-cuda" ;;
+                    2) ASSET_NAME="qwen3-tts-linux-x86_64" ;;
+                    *) warn "Invalid choice, defaulting to CUDA."
+                       ASSET_NAME="qwen3-tts-linux-x86_64-cuda" ;;
+                esac
             else
                 ASSET_NAME="qwen3-tts-linux-x86_64"
             fi
             ;;
-        linux-aarch64)   ASSET_NAME="qwen3-tts-linux-aarch64" ;;
+        linux-aarch64)
+            if [ -n "$CUDA_DRIVER" ]; then
+                info "NVIDIA GPU detected on ARM64 (Jetson). Choose build variant:"
+                echo "  1) CUDA  (recommended for Jetson)"
+                echo "  2) CPU only"
+                printf "Select variant [1]: "
+                read -r variant </dev/tty
+                variant="${variant:-1}"
+                case "$variant" in
+                    1) ASSET_NAME="qwen3-tts-linux-aarch64-cuda" ;;
+                    2) ASSET_NAME="qwen3-tts-linux-aarch64" ;;
+                    *) warn "Invalid choice, defaulting to CUDA."
+                       ASSET_NAME="qwen3-tts-linux-aarch64-cuda" ;;
+                esac
+            else
+                ASSET_NAME="qwen3-tts-linux-aarch64"
+            fi
+            ;;
         *)
             err "Unsupported platform: ${OS}-${ARCH}"
             exit 1
@@ -86,7 +105,7 @@ resolve_asset() {
 }
 
 # ---------------------------------------------------------------------------
-# 3. Download & extract release
+# 3. Download & extract release (libtorch is bundled for all Linux builds)
 # ---------------------------------------------------------------------------
 download_release() {
     local zip_name="${ASSET_NAME}.zip"
@@ -102,7 +121,6 @@ download_release() {
     info "Extracting release..."
     unzip -q "${temp_dir}/${zip_name}" -d "${temp_dir}"
 
-    # Copy everything from the extracted asset directory into INSTALL_DIR
     cp -r "${temp_dir}/${ASSET_NAME}/"* "${INSTALL_DIR}/"
     chmod +x "${INSTALL_DIR}/tts" "${INSTALL_DIR}/voice_clone"
 
@@ -111,31 +129,7 @@ download_release() {
 }
 
 # ---------------------------------------------------------------------------
-# 4. Download CUDA libtorch (Linux x86_64 CUDA only)
-# ---------------------------------------------------------------------------
-download_cuda_libtorch() {
-    if [ -z "$USE_CUDA" ]; then
-        return
-    fi
-
-    info "Downloading CUDA libtorch (this may take a while)..."
-    local url="https://download.pytorch.org/libtorch/cu128/libtorch-cxx11-abi-shared-with-deps-2.7.1%2Bcu128.zip"
-    local temp_dir
-    temp_dir=$(mktemp -d)
-
-    curl -fSL -o "${temp_dir}/libtorch.zip" "$url"
-    info "Extracting libtorch..."
-    unzip -q "${temp_dir}/libtorch.zip" -d "${temp_dir}"
-
-    rm -rf "${INSTALL_DIR}/libtorch"
-    mv "${temp_dir}/libtorch" "${INSTALL_DIR}/libtorch"
-
-    rm -rf "$temp_dir"
-    ok "CUDA libtorch installed to ${INSTALL_DIR}/libtorch/"
-}
-
-# ---------------------------------------------------------------------------
-# 5. Model selection & download
+# 4. Model selection & download
 # ---------------------------------------------------------------------------
 download_models() {
     echo ""
@@ -167,14 +161,12 @@ download_models() {
             info "Downloading ${model}..."
             mkdir -p "$model_dir"
 
-            # List files via HuggingFace API and download each one
             local api_url="https://huggingface.co/api/models/Qwen/${model}"
             local hf_url="https://huggingface.co/Qwen/${model}/resolve/main"
             local files
             files=$(curl -fSL "$api_url" | grep -o '"rfilename":"[^"]*"' | sed 's/"rfilename":"//;s/"//')
 
             for file in $files; do
-                # Skip markdown and git files
                 case "$file" in
                     .gitattributes|README.md) continue ;;
                 esac
@@ -192,7 +184,7 @@ download_models() {
 }
 
 # ---------------------------------------------------------------------------
-# 6. Download reference audio
+# 5. Download reference audio
 # ---------------------------------------------------------------------------
 download_reference_audio() {
     local ref_dir="${INSTALL_DIR}/reference_audio"
@@ -210,7 +202,7 @@ download_reference_audio() {
 }
 
 # ---------------------------------------------------------------------------
-# 7. Done — print sample commands
+# 6. Done — print sample commands
 # ---------------------------------------------------------------------------
 print_usage() {
     local cv_model_path="models/${CUSTOM_VOICE_MODEL}"
@@ -248,7 +240,6 @@ main() {
     detect_platform
     resolve_asset
     download_release
-    download_cuda_libtorch
     download_models
     download_reference_audio
     print_usage
