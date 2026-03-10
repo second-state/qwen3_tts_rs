@@ -405,18 +405,20 @@ impl Qwen3TTSModel {
         // Build instruct text if provided
         let _instruct_text = instruct.map(|i| self.build_instruct_text(i));
 
-        // Placeholder: Actual generation would happen here
-        // For now, return a silent waveform
-        let sample_rate = 24000;
-        let duration_samples = sample_rate * 2; // 2 seconds of silence
-        let waveform = vec![0.0f32; duration_samples as usize];
-
         tracing::info!(
-            "Generated custom voice: text='{}', speaker='{}', language='{}'",
+            "Generating custom voice: text='{}', speaker='{}', language='{}'",
             texts[0],
             speakers[0].name(),
             languages[0].as_str()
         );
+
+        let (waveform, sample_rate) = if let Some(ref engine) = self.inference {
+            engine.generate(&texts[0], speakers[0].name(), languages[0].as_str())?
+        } else {
+            tracing::warn!("TTSInference not loaded, returning silence");
+            let sr = 24000u32;
+            (vec![0.0f32; (sr * 2) as usize], sr)
+        };
 
         Ok(GenerationOutput {
             waveforms: vec![waveform],
