@@ -17,6 +17,7 @@ use crate::types::{GenerationOutput, Language, Speaker, VoiceClonePromptItem, Vo
 use std::collections::HashSet;
 use std::path::Path;
 use crate::tensor::{DType, Device, Tensor};
+use crate::inference::TTSInference;
 
 /// Builder for generation parameters.
 #[derive(Debug, Clone, Default)]
@@ -167,6 +168,9 @@ pub struct Qwen3TTSModel {
     /// Supported languages
     supported_languages: Option<HashSet<String>>,
 
+    /// Inference engine (None if model files not fully loaded)
+    inference: Option<TTSInference>,
+
     /// Speaker encoder sample rate
     speaker_encoder_sample_rate: u32,
 }
@@ -234,6 +238,27 @@ impl Qwen3TTSModel {
             .as_ref()
             .map(|lang_map| lang_map.keys().map(|k| k.to_lowercase()).collect());
 
+        // Try to load full inference engine (requires model.safetensors + tokenizer)
+        let inference = {
+            let weights_path = Path::new(&model_path).join("model.safetensors");
+            let tokenizer_path = Path::new(&model_path).join("tokenizer.json");
+            if weights_path.exists() && tokenizer_path.exists() {
+                match TTSInference::new(Path::new(&model_path), device) {
+                    Ok(engine) => {
+                        tracing::info!("TTSInference engine loaded");
+                        Some(engine)
+                    }
+                    Err(e) => {
+                        tracing::warn!("TTSInference load failed, using placeholder: {e}");
+                        None
+                    }
+                }
+            } else {
+                tracing::warn!("model.safetensors or tokenizer.json missing, using placeholder TTS");
+                None
+            }
+        };
+
         Ok(Self {
             _config: config,
             generate_defaults,
@@ -243,6 +268,7 @@ impl Qwen3TTSModel {
             tokenizer_type,
             supported_speakers,
             supported_languages,
+            inference,
             speaker_encoder_sample_rate: 24000,
         })
     }
@@ -694,6 +720,7 @@ mod tests {
             tokenizer_type: TokenizerType::V2_12Hz,
             supported_speakers: None,
             supported_languages: None,
+            inference: None,
             speaker_encoder_sample_rate: 24000,
         };
 
