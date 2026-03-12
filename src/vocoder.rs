@@ -183,7 +183,7 @@ impl ResidualVectorQuantization {
             {
                 layers.push(vq);
             } else {
-                println!("Warning: Failed to load VQ layer {} at {}", i, layer_prefix);
+                eprintln!("Warning: Failed to load VQ layer {} at {}", i, layer_prefix);
                 return None;
             }
         }
@@ -1156,7 +1156,7 @@ impl Vocoder {
         config: VocoderConfig,
         device: Device,
     ) -> Result<Self> {
-        println!("Loading Vocoder...");
+        eprintln!("Loading Vocoder...");
 
         // Load quantizer with "decoder." prefix
         let quantizer = SplitResidualVectorQuantizer::from_weights(
@@ -1168,7 +1168,7 @@ impl Vocoder {
             device,
         )
         .ok_or_else(|| Qwen3TTSError::ModelLoad("Failed to load quantizer".into()))?;
-        println!("  Loaded quantizer");
+        eprintln!("  Loaded quantizer");
 
         // Load pre_conv
         let pre_conv_weight = weights
@@ -1179,11 +1179,11 @@ impl Vocoder {
             .get("decoder.pre_conv.conv.bias")
             .map(|w| w.to_device(device));
         let pre_conv = CausalConv1d::from_weights(pre_conv_weight, pre_conv_bias, 1, 1, 1);
-        println!("  Loaded pre_conv");
+        eprintln!("  Loaded pre_conv");
 
         // Load full pre-transformer (8 layers)
         let pre_transformer = VocoderTransformer::load(weights, &config, device)?;
-        println!(
+        eprintln!(
             "  Loaded pre_transformer ({} layers)",
             config.num_hidden_layers
         );
@@ -1210,7 +1210,7 @@ impl Vocoder {
 
             upsample_blocks.push((trans_conv, convnext));
         }
-        println!("  Loaded {} upsample blocks", upsample_blocks.len());
+        eprintln!("  Loaded {} upsample blocks", upsample_blocks.len());
 
         // Load first decoder conv
         let first_conv_weight = weights
@@ -1222,7 +1222,7 @@ impl Vocoder {
             .map(|w| w.to_device(device));
         let decoder_first_conv =
             CausalConv1d::from_weights(first_conv_weight, first_conv_bias, 1, 1, 1);
-        println!("  Loaded decoder first conv");
+        eprintln!("  Loaded decoder first conv");
 
         // Load decoder blocks
         let mut decoder_blocks = Vec::new();
@@ -1236,7 +1236,7 @@ impl Vocoder {
             .ok_or_else(|| Qwen3TTSError::ModelLoad(format!("Failed to load decoder.{}", i + 1)))?;
             decoder_blocks.push(block);
         }
-        println!("  Loaded {} decoder blocks", decoder_blocks.len());
+        eprintln!("  Loaded {} decoder blocks", decoder_blocks.len());
 
         // Load final activation and conv
         let final_idx = config.upsample_rates.len() + 1;
@@ -1258,7 +1258,7 @@ impl Vocoder {
             .get(&format!("decoder.decoder.{}.conv.bias", final_idx + 1))
             .map(|w| w.to_device(device));
         let final_conv = CausalConv1d::from_weights(final_conv_weight, final_conv_bias, 1, 1, 1);
-        println!("  Loaded final layers");
+        eprintln!("  Loaded final layers");
 
         Ok(Self {
             quantizer,
@@ -1329,7 +1329,7 @@ pub fn load_vocoder_weights<P: AsRef<std::path::Path>>(
         weights.insert(name, tensor.to_device(device));
     }
 
-    println!("Loaded {} vocoder weight tensors", weights.len());
+    eprintln!("Loaded {} vocoder weight tensors", weights.len());
     Ok(weights)
 }
 

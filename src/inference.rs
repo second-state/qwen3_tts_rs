@@ -59,7 +59,7 @@ impl CodePredictor {
         let rms_norm_eps = config.rms_norm_eps;
         let num_code_groups = config.num_code_groups as i64;
 
-        println!(
+        eprintln!(
             "Loading CodePredictor with {} layers, hidden_size={}, num_heads={}, num_kv_heads={}",
             num_layers, hidden_size, num_heads, num_kv_heads
         );
@@ -72,7 +72,7 @@ impl CodePredictor {
                 code_embeddings.push(tensor.to_device(device).to_dtype(DType::Float32));
             }
         }
-        println!(
+        eprintln!(
             "  Loaded {} code_predictor embeddings",
             code_embeddings.len()
         );
@@ -97,7 +97,7 @@ impl CodePredictor {
             })?;
             layers.push(layer);
         }
-        println!("  Loaded {} code_predictor layers", layers.len());
+        eprintln!("  Loaded {} code_predictor layers", layers.len());
 
         // Load final norm
         let norm_weight = weights
@@ -117,7 +117,7 @@ impl CodePredictor {
                 ));
             }
         }
-        println!("  Loaded {} code_predictor LM heads", lm_heads.len());
+        eprintln!("  Loaded {} code_predictor LM heads", lm_heads.len());
 
         // Load optional small_to_mtp_projection (present in 1.7B+ models)
         let small_to_mtp_projection = if let Some(proj_weight) =
@@ -132,7 +132,7 @@ impl CodePredictor {
             } else {
                 Linear::from_weights(proj_weight.to_device(device).to_dtype(DType::Float32))
             };
-            println!("  Loaded small_to_mtp_projection");
+            eprintln!("  Loaded small_to_mtp_projection");
             Some(proj)
         } else {
             None
@@ -303,7 +303,7 @@ impl TalkerModel {
                 128
             };
 
-        println!(
+        eprintln!(
             "Loading TalkerModel with {} layers, hidden_size={}, num_heads={}, num_kv_heads={}, head_dim={}",
             num_layers, hidden_size, num_heads, num_kv_heads, head_dim
         );
@@ -314,7 +314,7 @@ impl TalkerModel {
             .ok_or_else(|| Qwen3TTSError::ModelLoad("Missing text_embedding.weight".into()))?
             .to_device(device)
             .to_dtype(DType::Float32);
-        println!("  Loaded text_embedding: {:?}", text_embedding.size());
+        eprintln!("  Loaded text_embedding: {:?}", text_embedding.size());
 
         // Load text projection layers (2048 -> 1024)
         let text_proj_fc1_weight = weights
@@ -345,7 +345,7 @@ impl TalkerModel {
             })?
             .to_device(device)
             .to_dtype(DType::Float32);
-        println!("  Loaded text_projection layers");
+        eprintln!("  Loaded text_projection layers");
 
         // Load main codec embedding [3072, 1024]
         let codec_embedding = weights
@@ -355,7 +355,7 @@ impl TalkerModel {
             })?
             .to_device(device)
             .to_dtype(DType::Float32);
-        println!("  Loaded codec_embedding: {:?}", codec_embedding.size());
+        eprintln!("  Loaded codec_embedding: {:?}", codec_embedding.size());
 
         // Load transformer layers
         let mut layers = Vec::new();
@@ -377,7 +377,7 @@ impl TalkerModel {
             })?;
             layers.push(layer);
         }
-        println!("  Loaded {} transformer layers", layers.len());
+        eprintln!("  Loaded {} transformer layers", layers.len());
 
         // Load final layer norm
         let norm_weight = weights
@@ -386,7 +386,7 @@ impl TalkerModel {
             .to_device(device)
             .to_dtype(DType::Float32);
         let norm = RMSNorm::from_weights(norm_weight, rms_norm_eps);
-        println!("  Loaded final norm");
+        eprintln!("  Loaded final norm");
 
         // Load codec_head for predicting code 0
         let codec_head_weight = weights
@@ -395,11 +395,11 @@ impl TalkerModel {
             .to_device(device)
             .to_dtype(DType::Float32);
         let codec_head = Linear::from_weights(codec_head_weight);
-        println!("  Loaded codec_head");
+        eprintln!("  Loaded codec_head");
 
         // Load code predictor sub-transformer
         let code_predictor = CodePredictor::load(weights, &config.code_predictor_config, device)?;
-        println!("  Loaded code_predictor");
+        eprintln!("  Loaded code_predictor");
 
         // Create rotary embedding
         let rotary_emb = RotaryEmbedding::new(
@@ -530,7 +530,7 @@ impl TalkerModel {
         // Concatenate all phases
         let input_embeddings = Tensor::cat(&[role_embed, phase2, phase3, phase4], 1);
 
-        println!(
+        eprintln!(
             "  Built input embeddings: {} positions (3 role + 6 codec_prefix + {} text + 1 eos + 1 bos)",
             input_embeddings.size()[1],
             num_text_tokens
@@ -632,7 +632,7 @@ impl TalkerModel {
         // Concatenate all phases
         let input_embeddings = Tensor::cat(&[role_embed, phase2, phase3, phase4], 1);
 
-        println!(
+        eprintln!(
             "  Built input embeddings (xvector): {} positions (3 role + 6 codec_prefix + {} text + 1 eos + 1 bos)",
             input_embeddings.size()[1],
             num_text_tokens
@@ -786,13 +786,13 @@ impl TalkerModel {
         // Concatenate all phases
         let input_embeddings = Tensor::cat(&[role_embed, phase2, phase3, phase4, phase5], 1);
 
-        println!(
+        eprintln!(
             "  Built ICL input embeddings: {} positions (3 role + 6 codec_prefix + {} text + {} codec + 1 bos)",
             input_embeddings.size()[1],
             text_len,
             codec_len
         );
-        println!(
+        eprintln!(
             "    ref_pure={} tokens, synth_pure={} tokens, ref_codec={} frames",
             ref_pure.len(),
             synth_pure.len(),
@@ -912,7 +912,7 @@ impl TalkerModel {
 
             // Check EOS on code 0 only
             if code_0 == eos_code {
-                println!("  EOS detected at step {}", step);
+                eprintln!("  EOS detected at step {}", step);
                 break;
             }
 
@@ -960,7 +960,7 @@ impl TalkerModel {
             full_sequence = Tensor::cat(&[full_sequence, next_input], 1);
 
             if step % 10 == 0 {
-                println!("  Generated {} code frames", step + 1);
+                eprintln!("  Generated {} code frames", step + 1);
             }
         }
 
@@ -1025,7 +1025,7 @@ impl TTSInference {
             .map(|(name, tensor)| (name, tensor.to_device(device)))
             .collect();
 
-        println!("Loaded {} weight tensors", weights.len());
+        eprintln!("Loaded {} weight tensors", weights.len());
 
         // Load the Talker model
         let talker = TalkerModel::load(&weights, &config.talker_config, device)?;
@@ -1036,28 +1036,28 @@ impl TTSInference {
                 .join("speech_tokenizer")
                 .join("model.safetensors");
             if vocoder_path.exists() {
-                println!("Loading vocoder from: {}", vocoder_path.display());
+                eprintln!("Loading vocoder from: {}", vocoder_path.display());
                 match load_vocoder_weights(&vocoder_path, device) {
                     Ok(vocoder_weights) => {
                         let vocoder_config = VocoderConfig::default();
                         match Vocoder::load(&vocoder_weights, vocoder_config, device) {
                             Ok(v) => {
-                                println!("Vocoder loaded successfully");
+                                eprintln!("Vocoder loaded successfully");
                                 Some(v)
                             }
                             Err(e) => {
-                                println!("Warning: Failed to load vocoder: {}", e);
+                                eprintln!("Warning: Failed to load vocoder: {}", e);
                                 None
                             }
                         }
                     }
                     Err(e) => {
-                        println!("Warning: Failed to load vocoder weights: {}", e);
+                        eprintln!("Warning: Failed to load vocoder weights: {}", e);
                         None
                     }
                 }
             } else {
-                println!(
+                eprintln!(
                     "No vocoder found at {}, using placeholder audio",
                     vocoder_path.display()
                 );
@@ -1093,13 +1093,13 @@ impl TTSInference {
     /// - Returns None if no vocoder is loaded or codes are empty
     fn decode_codes_to_audio(&self, codes: &[Vec<i64>]) -> Option<Vec<f32>> {
         if codes.is_empty() {
-            println!("Warning: No codes to decode");
+            eprintln!("Warning: No codes to decode");
             return None;
         }
 
         let vocoder = self.vocoder.as_ref()?;
 
-        println!("Decoding audio with vocoder...");
+        eprintln!("Decoding audio with vocoder...");
 
         let num_frames = codes.len();
         let num_quantizers = codes[0].len();
@@ -1120,7 +1120,7 @@ impl TTSInference {
             }
         }
         if out_of_range > 0 {
-            println!(
+            eprintln!(
                 "Warning: {} codes out of range [0, {}), clamped",
                 out_of_range, codebook_size
             );
@@ -1132,11 +1132,11 @@ impl TTSInference {
             .unsqueeze(0)
             .to_device(self.device);
 
-        println!("Codes tensor shape: {:?}", codes_tensor.size());
+        eprintln!("Codes tensor shape: {:?}", codes_tensor.size());
 
         // Decode with vocoder
         let audio_tensor = vocoder.decode(&codes_tensor);
-        println!("Vocoder output shape: {:?}", audio_tensor.size());
+        eprintln!("Vocoder output shape: {:?}", audio_tensor.size());
 
         // Convert tensor to Vec<f32>
         let audio_len = audio_tensor.numel();
@@ -1145,7 +1145,7 @@ impl TTSInference {
             .to_dtype(DType::Float32)
             .to_vec_f32();
 
-        println!("Decoded {} audio samples", waveform.len());
+        eprintln!("Decoded {} audio samples", waveform.len());
 
         Some(waveform)
     }
@@ -1196,11 +1196,11 @@ impl TTSInference {
         let tts_bos_id = self.config.tts_bos_token_id as i64;
         let tts_eos_id = self.config.tts_eos_token_id as i64;
 
-        println!(
+        eprintln!(
             "Speaker: {} (id={}), Language: {} (id={})",
             speaker, speaker_id, language, language_id
         );
-        println!(
+        eprintln!(
             "Codec tokens: eos={}, think={}, think_bos={}, think_eos={}, pad={}, bos={}",
             codec_eos_id,
             codec_think_id,
@@ -1209,7 +1209,7 @@ impl TTSInference {
             codec_pad_id,
             codec_bos_id
         );
-        println!(
+        eprintln!(
             "TTS tokens: pad={}, bos={}, eos={}",
             tts_pad_id, tts_bos_id, tts_eos_id
         );
@@ -1235,7 +1235,7 @@ impl TTSInference {
         token_ids_i64.extend_from_slice(&text_ids);
         token_ids_i64.extend_from_slice(&[im_end, newline_id, im_start, assistant_id, newline_id]);
 
-        println!(
+        eprintln!(
             "Token sequence: {} tokens, first 3 = {:?}, text = {} tokens, last 5 = {:?}",
             token_ids_i64.len(),
             &token_ids_i64[..3],
@@ -1244,7 +1244,7 @@ impl TTSInference {
         );
 
         // Build dual-stream input embeddings
-        println!("Building input embeddings...");
+        eprintln!("Building input embeddings...");
         let input_embeddings = self.talker.build_input_embeddings(
             &token_ids_i64,
             speaker_id,
@@ -1263,7 +1263,7 @@ impl TTSInference {
         let tts_pad_embed = self.talker.embed_text(&[tts_pad_id]); // [1, 1, 1024]
 
         // Generate codes autoregressively
-        println!(
+        eprintln!(
             "Generating audio codes (temp={}, top_k={}, max={})...",
             temperature, top_k, max_codes
         );
@@ -1275,18 +1275,18 @@ impl TTSInference {
             codec_eos_id,
             &tts_pad_embed,
         );
-        println!("Generated {} code frames", codes.len());
+        eprintln!("Generated {} code frames", codes.len());
 
         // Convert codes to audio using vocoder
         let sample_rate = 24000u32;
         let waveform = if let Some(audio) = self.decode_codes_to_audio(&codes) {
             audio
         } else if codes.is_empty() {
-            println!("Warning: No codes generated, returning silence");
+            eprintln!("Warning: No codes generated, returning silence");
             vec![0.0; sample_rate as usize * 2]
         } else {
             // Placeholder synthesis when vocoder not loaded
-            println!("Warning: Vocoder not loaded, using placeholder synthesis");
+            eprintln!("Warning: Vocoder not loaded, using placeholder synthesis");
             let samples_per_frame = 200;
             let codebook_size = self.config.talker_config.code_predictor_config.vocab_size as f32;
             let mut samples = Vec::new();
@@ -1305,7 +1305,7 @@ impl TTSInference {
             samples
         };
 
-        println!(
+        eprintln!(
             "Generated {} samples ({:.2} seconds)",
             waveform.len(),
             waveform.len() as f64 / sample_rate as f64
@@ -1372,12 +1372,12 @@ impl TTSInference {
             .copied()
             .unwrap_or(0) as i64;
 
-        println!(
+        eprintln!(
             "Speaker: {} (id={}), Language: {} (id={})",
             speaker, speaker_id, language, language_id
         );
         if !instruct.is_empty() {
-            println!("Instruction: \"{}\"", instruct);
+            eprintln!("Instruction: \"{}\"", instruct);
         }
 
         // Get special token IDs
@@ -1438,7 +1438,7 @@ impl TTSInference {
         main_token_ids.extend_from_slice(&text_ids);
         main_token_ids.extend_from_slice(&[im_end, newline_id, im_start, assistant_id, newline_id]);
 
-        println!(
+        eprintln!(
             "Token sequence: {} instruction + {} main tokens, text = {} tokens",
             instruct_embeddings
                 .as_ref()
@@ -1449,7 +1449,7 @@ impl TTSInference {
         );
 
         // Build dual-stream input embeddings for main text
-        println!("Building input embeddings...");
+        eprintln!("Building input embeddings...");
         let main_embeddings = self.talker.build_input_embeddings(
             &main_token_ids,
             speaker_id,
@@ -1475,7 +1475,7 @@ impl TTSInference {
         let tts_pad_embed = self.talker.embed_text(&[tts_pad_id]);
 
         // Generate codes
-        println!(
+        eprintln!(
             "Generating audio codes (temp={}, top_k={}, max={})...",
             temperature, top_k, max_codes
         );
@@ -1487,7 +1487,7 @@ impl TTSInference {
             codec_eos_id,
             &tts_pad_embed,
         );
-        println!("Generated {} code frames", codes.len());
+        eprintln!("Generated {} code frames", codes.len());
 
         // Decode with vocoder
         let sample_rate = 24000u32;
@@ -1495,7 +1495,7 @@ impl TTSInference {
             .decode_codes_to_audio(&codes)
             .unwrap_or_else(|| vec![0.0; sample_rate as usize * 2]);
 
-        println!(
+        eprintln!(
             "Generated {} samples ({:.2} seconds)",
             waveform.len(),
             waveform.len() as f64 / sample_rate as f64
@@ -1553,7 +1553,7 @@ impl TTSInference {
         let tts_bos_id = self.config.tts_bos_token_id as i64;
         let tts_eos_id = self.config.tts_eos_token_id as i64;
 
-        println!("Voice clone: Language: {} (id={})", language, language_id);
+        eprintln!("Voice clone: Language: {} (id={})", language, language_id);
 
         // Build token sequence
         let im_start = self.config.im_start_token_id as i64;
@@ -1570,14 +1570,14 @@ impl TTSInference {
         token_ids_i64.extend_from_slice(&text_ids);
         token_ids_i64.extend_from_slice(&[im_end, newline_id, im_start, assistant_id, newline_id]);
 
-        println!(
+        eprintln!(
             "Token sequence: {} tokens, text = {} tokens",
             token_ids_i64.len(),
             text_ids.len(),
         );
 
         // Build dual-stream input embeddings with speaker embedding
-        println!("Building input embeddings with speaker x-vector...");
+        eprintln!("Building input embeddings with speaker x-vector...");
         let input_embeddings = self.talker.build_input_embeddings_with_xvector(
             &token_ids_i64,
             speaker_embedding,
@@ -1596,7 +1596,7 @@ impl TTSInference {
         let tts_pad_embed = self.talker.embed_text(&[tts_pad_id]);
 
         // Generate codes autoregressively
-        println!(
+        eprintln!(
             "Generating audio codes (temp={}, top_k={}, max={})...",
             temperature, top_k, max_codes
         );
@@ -1608,7 +1608,7 @@ impl TTSInference {
             codec_eos_id,
             &tts_pad_embed,
         );
-        println!("Generated {} code frames", codes.len());
+        eprintln!("Generated {} code frames", codes.len());
 
         // Convert codes to audio using vocoder
         let sample_rate = 24000u32;
@@ -1616,7 +1616,7 @@ impl TTSInference {
             .decode_codes_to_audio(&codes)
             .unwrap_or_else(|| vec![0.0; sample_rate as usize * 2]);
 
-        println!(
+        eprintln!(
             "Generated {} samples ({:.2} seconds)",
             waveform.len(),
             waveform.len() as f64 / sample_rate as f64
@@ -1665,13 +1665,13 @@ impl TTSInference {
         let tts_bos_id = self.config.tts_bos_token_id as i64;
         let tts_eos_id = self.config.tts_eos_token_id as i64;
 
-        println!(
+        eprintln!(
             "ICL voice clone: Language: {} (id={})",
             language, language_id
         );
-        println!("  Reference text: \"{}\"", ref_text);
-        println!("  Synthesis text: \"{}\"", text);
-        println!("  Reference codec frames: {}", ref_codes.len());
+        eprintln!("  Reference text: \"{}\"", ref_text);
+        eprintln!("  Synthesis text: \"{}\"", text);
+        eprintln!("  Reference codec frames: {}", ref_codes.len());
 
         // Build token sequences for ref text and synth text
         let im_start = self.config.im_start_token_id as i64;
@@ -1701,14 +1701,14 @@ impl TTSInference {
             newline_id,
         ]);
 
-        println!(
+        eprintln!(
             "  ref_text tokens: {}, synth_text tokens: {}",
             ref_token_ids.len(),
             synth_token_ids.len()
         );
 
         // Build ICL input embeddings
-        println!("Building ICL input embeddings...");
+        eprintln!("Building ICL input embeddings...");
         let input_embeddings = self.talker.build_input_embeddings_with_icl(
             &ref_token_ids,
             &synth_token_ids,
@@ -1729,7 +1729,7 @@ impl TTSInference {
         let tts_pad_embed = self.talker.embed_text(&[tts_pad_id]);
 
         // Generate codes autoregressively
-        println!(
+        eprintln!(
             "Generating audio codes (temp={}, top_k={}, max={})...",
             temperature, top_k, max_codes
         );
@@ -1741,13 +1741,13 @@ impl TTSInference {
             codec_eos_id,
             &tts_pad_embed,
         );
-        println!("Generated {} code frames", generated_codes.len());
+        eprintln!("Generated {} code frames", generated_codes.len());
 
         // Prepend reference codes to generated codes for joint decoding
         let ref_len = ref_codes.len();
         let gen_len = generated_codes.len();
         let total_len = ref_len + gen_len;
-        println!(
+        eprintln!(
             "Concatenating: {} ref + {} generated = {} total frames",
             ref_len, gen_len, total_len
         );
@@ -1759,26 +1759,26 @@ impl TTSInference {
         // Decode with vocoder and trim reference portion
         let sample_rate = 24000u32;
         let waveform = if gen_len == 0 {
-            println!("Warning: No codes generated, returning silence");
+            eprintln!("Warning: No codes generated, returning silence");
             vec![0.0; sample_rate as usize * 2]
         } else if let Some(full_waveform) = self.decode_codes_to_audio(&all_codes) {
             // Trim reference portion from output
             // cut = ref_len / total_len * waveform_len
             let cut =
                 (ref_len as f64 / total_len.max(1) as f64 * full_waveform.len() as f64) as usize;
-            println!(
+            eprintln!(
                 "Trimming reference portion: cut {} of {} samples",
                 cut,
                 full_waveform.len()
             );
             let trimmed = full_waveform[cut..].to_vec();
-            println!("Final output: {} samples", trimmed.len());
+            eprintln!("Final output: {} samples", trimmed.len());
             trimmed
         } else {
             vec![0.0; sample_rate as usize * 2]
         };
 
-        println!(
+        eprintln!(
             "Generated {} samples ({:.2} seconds)",
             waveform.len(),
             waveform.len() as f64 / sample_rate as f64

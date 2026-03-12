@@ -232,11 +232,11 @@ impl SpeakerEncoder {
         config: &SpeakerEncoderConfig,
         device: Device,
     ) -> Result<Self> {
-        println!("Loading SpeakerEncoder...");
+        eprintln!("Loading SpeakerEncoder...");
 
         // Load initial convolution
         let initial_conv = Conv1d::load(weights, "speaker_encoder.blocks.0.conv", device)?;
-        println!("  Loaded initial conv");
+        eprintln!("  Loaded initial conv");
 
         // Load SE-Res2Net blocks (blocks 1, 2, 3)
         let mut se_res2net_blocks = Vec::new();
@@ -254,19 +254,19 @@ impl SpeakerEncoder {
             )?;
             se_res2net_blocks.push(block);
         }
-        println!("  Loaded {} SE-Res2Net blocks", se_res2net_blocks.len());
+        eprintln!("  Loaded {} SE-Res2Net blocks", se_res2net_blocks.len());
 
         // Load MFA convolution
         let mfa_conv = Conv1d::load(weights, "speaker_encoder.mfa.conv", device)?;
-        println!("  Loaded MFA conv");
+        eprintln!("  Loaded MFA conv");
 
         // Load Asp
         let asp = Asp::load(weights, "speaker_encoder.asp", device)?;
-        println!("  Loaded Asp");
+        eprintln!("  Loaded Asp");
 
         // Load final FC
         let fc = Conv1d::load(weights, "speaker_encoder.fc", device)?;
-        println!("  Loaded FC");
+        eprintln!("  Loaded FC");
 
         // Pre-compute mel filterbank and Hann window
         let mel_basis = create_mel_filterbank(
@@ -279,7 +279,7 @@ impl SpeakerEncoder {
         );
         let hann_window = Tensor::hann_window(MEL_WIN_SIZE, device);
 
-        println!("SpeakerEncoder loaded successfully");
+        eprintln!("SpeakerEncoder loaded successfully");
 
         Ok(Self {
             initial_conv,

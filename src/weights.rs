@@ -140,13 +140,13 @@ impl SpeechTokenizerWeights {
 pub fn print_weight_summary(path: &Path) -> Result<()> {
     let tensors = Tensor::load_safetensors(path)?;
 
-    println!("Loaded {} tensors from {:?}", tensors.len(), path);
-    println!("First 20 tensors:");
+    eprintln!("Loaded {} tensors from {:?}", tensors.len(), path);
+    eprintln!("First 20 tensors:");
 
     for (i, (name, tensor)) in tensors.iter().take(20).enumerate() {
         let size = tensor.size();
         let kind = tensor.kind();
-        println!("  {}: {} {:?} {:?}", i, name, size, kind);
+        eprintln!("  {}: {} {:?} {:?}", i, name, size, kind);
     }
 
     Ok(())

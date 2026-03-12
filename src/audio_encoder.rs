@@ -424,7 +424,7 @@ impl AudioEncoder {
     pub fn load(weights_path: &Path, device: Device) -> Result<Self> {
         let config = AudioEncoderConfig::default();
 
-        println!("Loading audio encoder from: {}", weights_path.display());
+        eprintln!("Loading audio encoder from: {}", weights_path.display());
         let tensors = Tensor::load_safetensors(weights_path)?;
         let weights: HashMap<String, Tensor> = tensors
             .into_iter()
@@ -433,7 +433,7 @@ impl AudioEncoder {
 
         // Count encoder keys
         let enc_count = weights.keys().filter(|k| k.starts_with("encoder.")).count();
-        println!("  Found {} encoder weight tensors", enc_count);
+        eprintln!("  Found {} encoder weight tensors", enc_count);
 
         // Load conv encoder layers (0-14)
         let mut conv_layers = Vec::new();
@@ -551,7 +551,7 @@ impl AudioEncoder {
             .shallow_clone();
         conv_layers.push(EncoderConvLayer::Conv(CausalConv1d::from_weights(w, b)));
 
-        println!("  Loaded {} conv encoder layers", conv_layers.len());
+        eprintln!("  Loaded {} conv encoder layers", conv_layers.len());
 
         // Load transformer layers
         let mut transformer_layers = Vec::new();
@@ -567,14 +567,14 @@ impl AudioEncoder {
                     })?;
             transformer_layers.push(layer);
         }
-        println!("  Loaded {} transformer layers", transformer_layers.len());
+        eprintln!("  Loaded {} transformer layers", transformer_layers.len());
 
         // Load downsample
         let downsample_weight = weights
             .get("encoder.downsample.conv.weight")
             .ok_or_else(|| Qwen3TTSError::ModelLoad("Missing encoder downsample".into()))?
             .shallow_clone();
-        println!("  Loaded downsample: {:?}", downsample_weight.size());
+        eprintln!("  Loaded downsample: {:?}", downsample_weight.size());
 
         // Load quantizers
         let semantic_rvq = EncoderRVQ::from_weights(
@@ -585,7 +585,7 @@ impl AudioEncoder {
             device,
         )
         .ok_or_else(|| Qwen3TTSError::ModelLoad("Failed to load semantic RVQ".into()))?;
-        println!(
+        eprintln!(
             "  Loaded semantic RVQ: {} layers",
             semantic_rvq.layers.len()
         );
@@ -598,7 +598,7 @@ impl AudioEncoder {
             device,
         )
         .ok_or_else(|| Qwen3TTSError::ModelLoad("Failed to load acoustic RVQ".into()))?;
-        println!(
+        eprintln!(
             "  Loaded acoustic RVQ: {} layers (using {})",
             acoustic_rvq.layers.len(),
             acoustic_rvq.num_valid_layers
@@ -626,7 +626,7 @@ impl AudioEncoder {
             .unsqueeze(0) // [1, T]
             .unsqueeze(0); // [1, 1, T]
 
-        println!("  Audio encoder input: {:?}", waveform.size());
+        eprintln!("  Audio encoder input: {:?}", waveform.size());
 
         // Conv encoder
         let mut h = waveform;
@@ -637,11 +637,11 @@ impl AudioEncoder {
                 EncoderConvLayer::Elu => h.elu(),
             };
         }
-        println!("  After conv encoder: {:?}", h.size());
+        eprintln!("  After conv encoder: {:?}", h.size());
 
         // Transpose for transformer: [B, C, T] → [B, T, C]
         let mut h = h.transpose(1, 2);
-        println!("  Before transformer: {:?}", h.size());
+        eprintln!("  Before transformer: {:?}", h.size());
 
         // Transformer
         for layer in &self.transformer_layers {
@@ -650,13 +650,13 @@ impl AudioEncoder {
 
         // Back to conv format: [B, T, C] → [B, C, T]
         let h = h.transpose(1, 2);
-        println!("  After transformer: {:?}", h.size());
+        eprintln!("  After transformer: {:?}", h.size());
 
         // Downsample: Conv1d(512→512, k=4, stride=2) with causal padding
         let pad = 4 - 2; // kernel_size - stride = 2
         let h = h.constant_pad_nd(&[pad, 0]);
         let h = h.conv1d(&self.downsample_weight, None::<&Tensor>, &[2], &[0], &[1], 1);
-        println!("  After downsample: {:?}", h.size());
+        eprintln!("  After downsample: {:?}", h.size());
 
         // Quantize
         // Semantic: 1 code per frame
@@ -666,7 +666,7 @@ impl AudioEncoder {
 
         // Concatenate: [1, 16, T]
         let all_codes = Tensor::cat(&[semantic_codes, acoustic_codes], 1);
-        println!("  Encoded codes: {:?}", all_codes.size());
+        eprintln!("  Encoded codes: {:?}", all_codes.size());
 
         // Convert to Vec<Vec<i64>>: frames × 16
         let num_quantizers = all_codes.size()[1] as usize;
@@ -682,7 +682,7 @@ impl AudioEncoder {
             frames.push(frame_codes);
         }
 
-        println!(
+        eprintln!(
             "  Encoded {} frames × {} quantizers ({:.2} Hz)",
             num_frames,
             num_quantizers,

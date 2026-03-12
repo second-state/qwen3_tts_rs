@@ -361,7 +361,7 @@ impl Attention {
                 normalized * q_norm
             } else {
                 // Unknown shape, skip norm
-                println!("Warning: Unexpected q_norm shape {:?}", q_norm_shape);
+                eprintln!("Warning: Unexpected q_norm shape {:?}", q_norm_shape);
                 normalized
             }
         } else {
@@ -383,7 +383,7 @@ impl Attention {
                 normalized * k_norm
             } else {
                 // Unknown shape, skip norm
-                println!("Warning: Unexpected k_norm shape {:?}", k_norm_shape);
+                eprintln!("Warning: Unexpected k_norm shape {:?}", k_norm_shape);
                 normalized
             }
         } else {
@@ -485,7 +485,7 @@ impl Attention {
 
         let check_nan = |name: &str, t: &Tensor| {
             let mean: f64 = t.as_tch().mean(Kind::Float).try_into().unwrap_or(f64::NAN);
-            println!(
+            eprintln!(
                 "      attn {}: mean={:.6} nan={}",
                 name,
                 mean,
@@ -797,7 +797,7 @@ impl TransformerLayer {
                 .try_into()
                 .unwrap_or(f64::NAN);
             let has_nan = mean.is_nan();
-            println!("    {}: mean={:.6} nan={}", name, mean, has_nan);
+            eprintln!("    {}: mean={:.6} nan={}", name, mean, has_nan);
         };
 
         check_nan("input", hidden_states);
