@@ -1,0 +1,256 @@
+name: Integration Tests
+
+on:
+  workflow_dispatch:
+
+jobs:
+  integration:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            name: Linux x86_64 (tch)
+            backend: tch
+            libtorch-url: https://github.com/second-state/libtorch-releases/releases/download/v2.7.1/libtorch-cxx11-abi-x86_64-2.7.1.tar.gz
+            libtorch-archive: libtorch.tar.gz
+          - os: ubuntu-24.04-arm
+            name: Linux ARM64 (tch)
+            backend: tch
+            libtorch-url: https://github.com/second-state/libtorch-releases/releases/download/v2.7.1/libtorch-cxx11-abi-aarch64-2.7.1.tar.gz
+            libtorch-archive: libtorch.tar.gz
+          - os: macos-latest
+            name: macOS ARM64 (MLX)
+            backend: mlx
+
+    runs-on: ${{ matrix.os }}
+    name: Test (${{ matrix.name }})
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Init MLX submodule
+        if: matrix.backend == 'mlx'
+        run: git submodule update --init --recursive
+
+      - name: Delete Cargo.lock
+        run: rm -f Cargo.lock
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Download libtorch
+        if: matrix.backend == 'tch'
+        run: curl -Lo ${{ matrix.libtorch-archive }} "${{ matrix.libtorch-url }}"
+
+      - name: Extract libtorch
+        if: matrix.backend == 'tch'
+        run: |
+          if [[ "${{ matrix.libtorch-archive }}" == *.zip ]]; then
+            unzip -q ${{ matrix.libtorch-archive }}
+          else
+            tar xzf ${{ matrix.libtorch-archive }}
+          fi
+
+      - name: Set linker rpath-link (Linux only)
+        if: runner.os == 'Linux' && matrix.backend == 'tch'
+        run: echo "RUSTFLAGS=-C link-arg=-Wl,-rpath-link,${{ github.workspace }}/libtorch/lib" >> "$GITHUB_ENV"
+
+      - name: Build (tch)
+        if: matrix.backend == 'tch'
+        env:
+          LIBTORCH: ${{ github.workspace }}/libtorch
+          LIBTORCH_BYPASS_VERSION_CHECK: "1"
+        run: cargo build --release
+
+      - name: Build (MLX)
+        if: matrix.backend == 'mlx'
+        run: cargo build --release --no-default-features --features mlx
+
+      - name: Build examples
+        if: matrix.backend == 'tch'
+        env:
+          LIBTORCH: ${{ github.workspace }}/libtorch
+          LIBTORCH_BYPASS_VERSION_CHECK: "1"
+        run: cargo build --examples --release
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install HuggingFace tools
+        run: pip install huggingface_hub transformers
+
+      - name: Set library path (Linux)
+        if: runner.os == 'Linux' && matrix.backend == 'tch'
+        run: echo "LD_LIBRARY_PATH=${{ github.workspace }}/libtorch/lib:$LD_LIBRARY_PATH" >> "$GITHUB_ENV"
+
+      - name: Download model
+        run: python3 -c "from huggingface_hub import snapshot_download; snapshot_download('Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice', local_dir='models/Qwen3-TTS-12Hz-0.6B-CustomVoice')"
+
+      - name: Generate tokenizer.json
+        run: |
+          python3 -c "
+          from transformers import AutoTokenizer
+          tok = AutoTokenizer.from_pretrained('models/Qwen3-TTS-12Hz-0.6B-CustomVoice', trust_remote_code=True)
+          tok.backend_tokenizer.save('models/Qwen3-TTS-12Hz-0.6B-CustomVoice/tokenizer.json')
+          print('Saved tokenizer.json')
+          "
+
+      - name: Generate English audio
+        run: |
+          ./target/release/tts \
+            models/Qwen3-TTS-12Hz-0.6B-CustomVoice \
+            "Hello! This is a test of the Qwen3 TTS system running on CI." \
+            Vivian \
+            english
+          mv output.wav vivian_english.wav
+
+      - name: Generate Chinese audio
+        run: |
+          ./target/release/tts \
+            models/Qwen3-TTS-12Hz-0.6B-CustomVoice \
+            "你好！这是Qwen3语音合成系统的持续集成测试。" \
+            Vivian \
+            chinese
+          mv output.wav vivian_chinese.wav
+
+      - name: Generate Ryan reference audio
+        run: |
+          ./target/release/tts \
+            models/Qwen3-TTS-12Hz-0.6B-CustomVoice \
+            "The quick brown fox jumps over the lazy dog." \
+            Ryan \
+            english
+          mv output.wav ryan_reference.wav
+
+      - name: Download Base model
+        run: python3 -c "from huggingface_hub import snapshot_download; snapshot_download('Qwen/Qwen3-TTS-12Hz-0.6B-Base', local_dir='models/Qwen3-TTS-12Hz-0.6B-Base')"
+
+      - name: Generate Base model tokenizer.json
+        run: |
+          python3 -c "
+          from transformers import AutoTokenizer
+          tok = AutoTokenizer.from_pretrained('models/Qwen3-TTS-12Hz-0.6B-Base', trust_remote_code=True)
+          tok.backend_tokenizer.save('models/Qwen3-TTS-12Hz-0.6B-Base/tokenizer.json')
+          print('Saved tokenizer.json')
+          "
+
+      - name: Voice clone (ICL mode) from Ryan reference
+        run: |
+          ./target/release/voice_clone \
+            models/Qwen3-TTS-12Hz-0.6B-Base \
+            ryan_reference.wav \
+            "This is a voice cloning test with in-context learning." \
+            english \
+            "The quick brown fox jumps over the lazy dog."
+          mv output_voice_clone.wav output_ryan_clone_icl.wav
+
+      - name: API server tests (preset voice + voice clone, stream + non-stream)
+        run: |
+          ./target/release/api_server models/Qwen3-TTS-12Hz-0.6B-CustomVoice --port 8080 &
+          API_PID=$!
+          sleep 5
+
+          echo "=== API: preset voice, non-streaming, WAV ==="
+          curl -sf -X POST http://127.0.0.1:8080/v1/audio/speech \
+            -H "Content-Type: application/json" \
+            -d '{"input":"Hello, this is an API server test with a preset voice.","voice":"alloy","language":"english","response_format":"wav"}' \
+            -o api_preset_nostream.wav
+          test -s api_preset_nostream.wav
+
+          echo "=== API: preset voice, streaming, PCM ==="
+          curl -sf -X POST http://127.0.0.1:8080/v1/audio/speech \
+            -H "Content-Type: application/json" \
+            -d '{"input":"Hello, this is a streaming test with a preset voice.","voice":"echo","language":"english","response_format":"pcm","stream":true}' \
+            -o api_preset_stream.raw
+          test -s api_preset_stream.raw
+
+          echo "=== API: voice clone (ICL), non-streaming, WAV ==="
+          python3 -c "
+          import base64, json
+          b64 = base64.b64encode(open('ryan_reference.wav','rb').read()).decode()
+          json.dump({
+            'input':'This is a voice cloning test via the API server.',
+            'voice':'alloy','language':'english','response_format':'wav',
+            'audio_sample':b64,
+            'audio_sample_text':'The quick brown fox jumps over the lazy dog.'
+          }, open('clone_request.json','w'))
+          "
+          curl -sf -X POST http://127.0.0.1:8080/v1/audio/speech \
+            -H "Content-Type: application/json" \
+            -d @clone_request.json \
+            -o api_clone_nostream.wav
+          test -s api_clone_nostream.wav
+
+          echo "=== API: voice clone (ICL), streaming, PCM ==="
+          python3 -c "
+          import base64, json
+          b64 = base64.b64encode(open('ryan_reference.wav','rb').read()).decode()
+          json.dump({
+            'input':'This is a streaming voice cloning test.',
+            'voice':'alloy','language':'english','response_format':'pcm','stream':True,
+            'audio_sample':b64,
+            'audio_sample_text':'The quick brown fox jumps over the lazy dog.'
+          }, open('clone_stream_request.json','w'))
+          "
+          curl -sf -X POST http://127.0.0.1:8080/v1/audio/speech \
+            -H "Content-Type: application/json" \
+            -d @clone_stream_request.json \
+            -o api_clone_stream.raw
+          test -s api_clone_stream.raw
+
+          kill $API_PID || true
+          echo "All 4 API server tests passed"
+
+      - name: Download 1.7B CustomVoice model
+        run: python3 -c "from huggingface_hub import snapshot_download; snapshot_download('Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice', local_dir='models/Qwen3-TTS-12Hz-1.7B-CustomVoice')"
+
+      - name: Generate 1.7B model tokenizer.json
+        run: |
+          python3 -c "
+          from transformers import AutoTokenizer
+          tok = AutoTokenizer.from_pretrained('models/Qwen3-TTS-12Hz-1.7B-CustomVoice', trust_remote_code=True)
+          tok.backend_tokenizer.save('models/Qwen3-TTS-12Hz-1.7B-CustomVoice/tokenizer.json')
+          print('Saved tokenizer.json')
+          "
+
+      - name: Generate urgent voice (1.7B with instruction)
+        run: |
+          ./target/release/tts \
+            models/Qwen3-TTS-12Hz-1.7B-CustomVoice \
+            "Breaking news! There has been a major development in the city center." \
+            Vivian \
+            english \
+            "Speak in an urgent and excited voice"
+          mv output.wav vivian_urgent_1.7b.wav
+
+      - name: Generate happy voice (1.7B with instruction)
+        run: |
+          ./target/release/tts \
+            models/Qwen3-TTS-12Hz-1.7B-CustomVoice \
+            "I am so happy to announce that we have won the championship!" \
+            Vivian \
+            english \
+            "Speak happily and joyfully"
+          mv output.wav vivian_happy_1.7b.wav
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: qwen3-tts-${{ matrix.os }}-${{ runner.arch }}-${{ matrix.backend }}.zip
+          path: |
+            target/release/tts
+            target/release/voice_clone
+            target/release/api_server
+            vivian_english.wav
+            vivian_chinese.wav
+            ryan_reference.wav
+            output_ryan_clone_icl.wav
+            api_preset_nostream.wav
+            api_preset_stream.raw
+            api_clone_nostream.wav
+            api_clone_stream.raw
+            vivian_urgent_1.7b.wav
+            vivian_happy_1.7b.wav
