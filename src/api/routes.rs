@@ -9,7 +9,7 @@ use crate::audio::{load_wav_bytes, resample, write_wav_bytes};
 use crate::audio_encoder::AudioEncoder;
 use crate::inference::TTSInference;
 use crate::speaker_encoder::SpeakerEncoder;
-use crate::tensor::Tensor;
+use crate::tensor::{DType, Device, Tensor};
 
 use axum::extract::State;
 use axum::http::header;
@@ -214,20 +214,28 @@ async fn speech_stream(
         .into_response())
 }
 
-/// Voice cloning data prepared from the request.
+/// Voice cloning data prepared from the request (always ICL mode).
 struct CloneData {
     speaker_embedding: Tensor,
-    ref_codes: Option<Vec<Vec<i64>>>,
-    ref_text: Option<String>,
+    ref_codes: Vec<Vec<i64>>,
+    ref_text: String,
 }
 
-/// Prepare voice cloning data (extract speaker embedding, optionally encode reference).
+/// Prepare voice cloning data using ICL mode.
+///
+/// All voice cloning goes through ICL (in-context learning) which uses the audio encoder
+/// to extract codec tokens from the reference audio. The speaker encoder is used for the
+/// x-vector embedding when available; otherwise a zero embedding is used.
 fn prepare_clone_data(state: &AppState, req: &SpeechRequest) -> Result<CloneData, ApiError> {
     let models = state.lock().map_err(|e| ApiError::internal(e.to_string()))?;
 
-    let speaker_encoder = models.speaker_encoder.as_ref().ok_or_else(|| {
+    let audio_encoder = models.audio_encoder.as_ref().ok_or_else(|| {
+        ApiError::bad_request("Voice cloning requires an audio encoder (speech_tokenizer)")
+    })?;
+
+    let ref_text = req.audio_sample_text.as_ref().ok_or_else(|| {
         ApiError::bad_request(
-            "Voice cloning requires a Base model with speaker encoder weights",
+            "Voice cloning requires audio_sample_text (transcript of the reference audio)",
         )
     })?;
 
@@ -249,30 +257,25 @@ fn prepare_clone_data(state: &AppState, req: &SpeechRequest) -> Result<CloneData
         samples
     };
 
-    // Extract speaker embedding
-    let speaker_embedding = speaker_encoder
-        .extract_embedding(&samples)
-        .map_err(|e| ApiError::internal(format!("Speaker embedding extraction failed: {}", e)))?;
-
-    // If reference text is provided and audio encoder is available, do ICL
-    let (ref_codes, ref_text) = if let Some(ref_text) = &req.audio_sample_text {
-        if let Some(audio_encoder) = &models.audio_encoder {
-            let codes = audio_encoder
-                .encode(&samples)
-                .map_err(|e| ApiError::internal(format!("Audio encoding failed: {}", e)))?;
-            (Some(codes), Some(ref_text.clone()))
-        } else {
-            tracing::warn!("audio_sample_text provided but no AudioEncoder loaded, falling back to x-vector mode");
-            (None, None)
-        }
+    // Extract speaker embedding if speaker encoder is available, otherwise use zeros
+    let speaker_embedding = if let Some(speaker_encoder) = &models.speaker_encoder {
+        speaker_encoder
+            .extract_embedding(&samples)
+            .map_err(|e| ApiError::internal(format!("Speaker embedding extraction failed: {}", e)))?
     } else {
-        (None, None)
+        let enc_dim = models.inference.config().speaker_encoder_config.enc_dim as i64;
+        Tensor::zeros(&[enc_dim], DType::Float32, Device::Cpu)
     };
+
+    // Encode reference audio to codec tokens
+    let ref_codes = audio_encoder
+        .encode(&samples)
+        .map_err(|e| ApiError::internal(format!("Audio encoding failed: {}", e)))?;
 
     Ok(CloneData {
         speaker_embedding,
         ref_codes,
-        ref_text,
+        ref_text: ref_text.clone(),
     })
 }
 
@@ -287,9 +290,14 @@ fn generate_audio(state: &AppState, req: &SpeechRequest) -> Result<(Vec<f32>, u3
 
     let models = state.lock().map_err(|e| ApiError::internal(e.to_string()))?;
 
-    // Voice cloning path
+    // Voice cloning path (ICL mode)
     if let Some(audio_b64) = &req.audio_sample {
-        return generate_with_clone(&models, &req.input, language, audio_b64, req.audio_sample_text.as_deref());
+        let ref_text = req.audio_sample_text.as_deref().ok_or_else(|| {
+            ApiError::bad_request(
+                "Voice cloning requires audio_sample_text (transcript of the reference audio)",
+            )
+        })?;
+        return generate_with_clone(&models, &req.input, language, audio_b64, ref_text);
     }
 
     // Standard generation with instruction support
@@ -306,16 +314,16 @@ fn generate_audio(state: &AppState, req: &SpeechRequest) -> Result<(Vec<f32>, u3
     }
 }
 
-/// Generate audio using voice cloning.
+/// Generate audio using voice cloning (ICL mode).
 fn generate_with_clone(
     models: &Models,
     text: &str,
     language: &str,
     audio_b64: &str,
-    ref_text: Option<&str>,
+    ref_text: &str,
 ) -> Result<(Vec<f32>, u32), ApiError> {
-    let speaker_encoder = models.speaker_encoder.as_ref().ok_or_else(|| {
-        ApiError::bad_request("Voice cloning requires a Base model with speaker encoder weights")
+    let audio_encoder = models.audio_encoder.as_ref().ok_or_else(|| {
+        ApiError::bad_request("Voice cloning requires an audio encoder (speech_tokenizer)")
     })?;
 
     let audio_bytes = BASE64_STANDARD
@@ -333,27 +341,23 @@ fn generate_with_clone(
         samples
     };
 
-    let speaker_embedding = speaker_encoder
-        .extract_embedding(&samples)
-        .map_err(|e| ApiError::internal(format!("Speaker embedding extraction failed: {}", e)))?;
+    // Use speaker encoder if available, otherwise zero embedding
+    let speaker_embedding = if let Some(speaker_encoder) = &models.speaker_encoder {
+        speaker_encoder
+            .extract_embedding(&samples)
+            .map_err(|e| ApiError::internal(format!("Speaker embedding extraction failed: {}", e)))?
+    } else {
+        let enc_dim = models.inference.config().speaker_encoder_config.enc_dim as i64;
+        Tensor::zeros(&[enc_dim], DType::Float32, Device::Cpu)
+    };
 
-    // ICL mode if ref_text provided and audio encoder available
-    if let Some(ref_text) = ref_text {
-        if let Some(audio_encoder) = &models.audio_encoder {
-            let ref_codes = audio_encoder
-                .encode(&samples)
-                .map_err(|e| ApiError::internal(format!("Audio encoding failed: {}", e)))?;
-            return models
-                .inference
-                .generate_with_icl(text, ref_text, &ref_codes, &speaker_embedding, language, 0.9, 50, 2048)
-                .map_err(ApiError::from);
-        }
-    }
+    let ref_codes = audio_encoder
+        .encode(&samples)
+        .map_err(|e| ApiError::internal(format!("Audio encoding failed: {}", e)))?;
 
-    // X-vector only mode
     models
         .inference
-        .generate_with_xvector(text, &speaker_embedding, language, 0.9, 50, 2048)
+        .generate_with_icl(text, ref_text, &ref_codes, &speaker_embedding, language, 0.9, 50, 2048)
         .map_err(ApiError::from)
 }
 
@@ -370,18 +374,11 @@ fn generate_chunk_audio(
     let models = state.lock().map_err(|e| ApiError::internal(e.to_string()))?;
 
     let (waveform, _sample_rate) = if let Some(cd) = clone_data {
-        // Voice cloning streaming
-        if let (Some(ref_codes), Some(ref_text)) = (&cd.ref_codes, &cd.ref_text) {
-            models
-                .inference
-                .generate_with_icl(text, ref_text, ref_codes, &cd.speaker_embedding, language, 0.9, 50, 2048)
-                .map_err(ApiError::from)?
-        } else {
-            models
-                .inference
-                .generate_with_xvector(text, &cd.speaker_embedding, language, 0.9, 50, 2048)
-                .map_err(ApiError::from)?
-        }
+        // Voice cloning streaming (always ICL)
+        models
+            .inference
+            .generate_with_icl(text, &cd.ref_text, &cd.ref_codes, &cd.speaker_embedding, language, 0.9, 50, 2048)
+            .map_err(ApiError::from)?
     } else if !instructions.is_empty() {
         models
             .inference
