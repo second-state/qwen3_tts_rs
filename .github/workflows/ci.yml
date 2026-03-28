@@ -153,10 +153,19 @@ jobs:
           ./target/release/api_server models/Qwen3-TTS-12Hz-0.6B-CustomVoice --port 8080 &
           API_PID=$!
           sleep 5
-          AUDIO_B64=$(base64 -i ryan_reference.wav)
+          python3 -c "
+          import base64, json
+          b64 = base64.b64encode(open('ryan_reference.wav','rb').read()).decode()
+          json.dump({
+            'input':'This is a voice cloning test via the API server.',
+            'voice':'alloy','language':'english','response_format':'wav',
+            'audio_sample':b64,
+            'audio_sample_text':'The quick brown fox jumps over the lazy dog.'
+          }, open('clone_request.json','w'))
+          "
           curl -sf -X POST http://127.0.0.1:8080/v1/audio/speech \
             -H "Content-Type: application/json" \
-            -d "{\"input\": \"This is a voice cloning test via the API server.\", \"voice\": \"alloy\", \"language\": \"english\", \"response_format\": \"wav\", \"audio_sample\": \"${AUDIO_B64}\", \"audio_sample_text\": \"The quick brown fox jumps over the lazy dog.\"}" \
+            -d @clone_request.json \
             -o output_api_clone.wav
           kill $API_PID || true
           test -s output_api_clone.wav

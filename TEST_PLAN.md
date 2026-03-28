@@ -268,11 +268,22 @@ Verify voice cloning via the API server works with the CustomVoice model (which 
 ./target/release/api_server models/Qwen3-TTS-12Hz-0.6B-CustomVoice --port 8080 &
 sleep 5
 
-# Send voice cloning request (audio_sample and audio_sample_text are both required)
-AUDIO_B64=$(base64 -i ryan_reference.wav)
-curl -s -X POST http://127.0.0.1:8080/v1/audio/speech \
+# Build JSON request with base64-encoded audio (too large for shell args)
+python3 -c "
+import base64, json
+b64 = base64.b64encode(open('ryan_reference.wav','rb').read()).decode()
+json.dump({
+  'input':'This is a voice cloning test via the API.',
+  'voice':'alloy','language':'english','response_format':'wav',
+  'audio_sample':b64,
+  'audio_sample_text':'The quick brown fox jumps over the lazy dog.'
+}, open('clone_request.json','w'))
+"
+
+# Send request using @file to avoid argument list too long
+curl -sf -X POST http://127.0.0.1:8080/v1/audio/speech \
   -H "Content-Type: application/json" \
-  -d "{\"input\": \"This is a voice cloning test via the API.\", \"voice\": \"alloy\", \"language\": \"english\", \"response_format\": \"wav\", \"audio_sample\": \"${AUDIO_B64}\", \"audio_sample_text\": \"The quick brown fox jumps over the lazy dog.\"}" \
+  -d @clone_request.json \
   -o output_api_clone.wav
 
 # Stop the API server
