@@ -9,7 +9,7 @@ use crate::audio::{load_wav_bytes, resample, write_wav_bytes};
 use crate::audio_encoder::AudioEncoder;
 use crate::inference::TTSInference;
 use crate::speaker_encoder::SpeakerEncoder;
-use crate::tensor::{DType, Device, Tensor};
+use crate::tensor::Tensor;
 
 use axum::extract::State;
 use axum::http::header;
@@ -215,8 +215,12 @@ async fn speech_stream(
 }
 
 /// Voice cloning data prepared from the request (always ICL mode).
+///
+/// Stores the speaker embedding as `Vec<f32>` instead of `Tensor` so that
+/// `CloneData` is `Send + Sync` (required for `tokio::task::spawn_blocking`
+/// with the tch backend whose raw tensor pointers are not thread-safe).
 struct CloneData {
-    speaker_embedding: Tensor,
+    speaker_embedding_data: Vec<f32>,
     ref_codes: Vec<Vec<i64>>,
     ref_text: String,
 }
@@ -258,13 +262,14 @@ fn prepare_clone_data(state: &AppState, req: &SpeechRequest) -> Result<CloneData
     };
 
     // Extract speaker embedding if speaker encoder is available, otherwise use zeros
-    let speaker_embedding = if let Some(speaker_encoder) = &models.speaker_encoder {
-        speaker_encoder
+    let speaker_embedding_data = if let Some(speaker_encoder) = &models.speaker_encoder {
+        let emb = speaker_encoder
             .extract_embedding(&samples)
-            .map_err(|e| ApiError::internal(format!("Speaker embedding extraction failed: {}", e)))?
+            .map_err(|e| ApiError::internal(format!("Speaker embedding extraction failed: {}", e)))?;
+        emb.to_vec_f32()
     } else {
-        let enc_dim = models.inference.config().speaker_encoder_config.enc_dim as i64;
-        Tensor::zeros(&[enc_dim], DType::Float32, Device::Cpu)
+        let enc_dim = models.inference.config().speaker_encoder_config.enc_dim;
+        vec![0.0f32; enc_dim]
     };
 
     // Encode reference audio to codec tokens
@@ -273,7 +278,7 @@ fn prepare_clone_data(state: &AppState, req: &SpeechRequest) -> Result<CloneData
         .map_err(|e| ApiError::internal(format!("Audio encoding failed: {}", e)))?;
 
     Ok(CloneData {
-        speaker_embedding,
+        speaker_embedding_data,
         ref_codes,
         ref_text: ref_text.clone(),
     })
@@ -347,8 +352,8 @@ fn generate_with_clone(
             .extract_embedding(&samples)
             .map_err(|e| ApiError::internal(format!("Speaker embedding extraction failed: {}", e)))?
     } else {
-        let enc_dim = models.inference.config().speaker_encoder_config.enc_dim as i64;
-        Tensor::zeros(&[enc_dim], DType::Float32, Device::Cpu)
+        let enc_dim = models.inference.config().speaker_encoder_config.enc_dim;
+        Tensor::from_slice_f32(&vec![0.0f32; enc_dim])
     };
 
     let ref_codes = audio_encoder
@@ -375,9 +380,10 @@ fn generate_chunk_audio(
 
     let (waveform, _sample_rate) = if let Some(cd) = clone_data {
         // Voice cloning streaming (always ICL)
+        let speaker_embedding = Tensor::from_slice_f32(&cd.speaker_embedding_data);
         models
             .inference
-            .generate_with_icl(text, &cd.ref_text, &cd.ref_codes, &cd.speaker_embedding, language, 0.9, 50, 2048)
+            .generate_with_icl(text, &cd.ref_text, &cd.ref_codes, &speaker_embedding, language, 0.9, 50, 2048)
             .map_err(ApiError::from)?
     } else if !instructions.is_empty() {
         models
