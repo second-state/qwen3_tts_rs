@@ -56,7 +56,7 @@ LIBTORCH_USE_PYTORCH=1 cargo build --release
 LIBTORCH_USE_PYTORCH=1 cargo build --examples --release
 ```
 
-**Pass criteria:** Binaries `target/release/tts` and `target/release/voice_clone` exist from step 1.1. Example binary `target/release/examples/test_weights` compiles without errors.
+**Pass criteria:** Binaries `target/release/tts`, `target/release/voice_clone`, and `target/release/api_server` exist from step 1.1. Example binary `target/release/examples/test_weights` compiles without errors.
 
 ### 1.3 Formatting check
 
@@ -231,33 +231,9 @@ mv output.wav ryan_reference.wav
 - Produces `output.wav` (renamed to `ryan_reference.wav`)
 - Output is a valid WAV file at 24kHz
 
-### 3.5 Voice cloning - X-vector only (Base model)
+### 3.5 Voice cloning - ICL mode (Base model, CLI)
 
-Clone a voice from reference audio using speaker embedding extraction only.
-
-```bash
-LIBTORCH_USE_PYTORCH=1 ./target/release/voice_clone \
-  models/Qwen3-TTS-12Hz-0.6B-Base \
-  ryan_reference.wav \
-  "This is a voice cloning test using Ryan as the reference speaker." \
-  english
-
-mv output_voice_clone.wav output_ryan_clone.wav
-```
-
-**Depends on:** Test 3.4 (produces `ryan_reference.wav`)
-
-**Pass criteria:**
-- Exits 0
-- Prints "Mode: X-vector only"
-- Reports speaker embedding shape `[1024]` and a non-zero norm
-- Produces `output_voice_clone.wav` (renamed to `output_ryan_clone.wav`)
-- Output is a valid WAV file at 24kHz
-- Reported duration is > 0 seconds
-
-### 3.6 Voice cloning - ICL mode (Base model)
-
-Clone a voice using ICL (In-Context Learning) with reference text transcript and codec token encoding.
+Clone a voice using ICL (In-Context Learning) with reference text transcript and codec token encoding via the CLI tool.
 
 ```bash
 LIBTORCH_USE_PYTORCH=1 ./target/release/voice_clone \
@@ -282,6 +258,35 @@ mv output_voice_clone.wav output_ryan_clone_icl.wav
 - Output is a valid WAV file at 24kHz
 - Reported duration is > 0 seconds
 - Reference portion is trimmed (printed "Trimming reference portion" message)
+
+### 3.6 Voice cloning - ICL mode (CustomVoice model, API server)
+
+Verify voice cloning via the API server works with the CustomVoice model (which lacks the speaker encoder). The API server uses ICL mode for all voice cloning and substitutes a zero speaker embedding when the speaker encoder is not available.
+
+```bash
+# Start the API server with CustomVoice model
+./target/release/api_server models/Qwen3-TTS-12Hz-0.6B-CustomVoice --port 8080 &
+sleep 5
+
+# Send voice cloning request (audio_sample and audio_sample_text are both required)
+AUDIO_B64=$(base64 -i ryan_reference.wav)
+curl -s -X POST http://127.0.0.1:8080/v1/audio/speech \
+  -H "Content-Type: application/json" \
+  -d "{\"input\": \"This is a voice cloning test via the API.\", \"voice\": \"alloy\", \"language\": \"english\", \"response_format\": \"wav\", \"audio_sample\": \"${AUDIO_B64}\", \"audio_sample_text\": \"The quick brown fox jumps over the lazy dog.\"}" \
+  -o output_api_clone.wav
+
+# Stop the API server
+kill %1
+```
+
+**Depends on:** Test 3.4 (produces `ryan_reference.wav`)
+
+**Pass criteria:**
+- API server starts and reports "Audio encoder loaded (ICL voice cloning enabled)"
+- Request returns HTTP 200
+- Produces `output_api_clone.wav` as a valid WAV file at 24kHz
+- Output duration is > 0 seconds
+- Works without the speaker encoder (CustomVoice model)
 
 ### 3.7 Urgent voice generation (1.7B CustomVoice with instruction)
 
@@ -351,13 +356,14 @@ The CI uploads the following artifacts per platform:
 |----------|------------|
 | `target/release/tts` | Build (1.1) |
 | `target/release/voice_clone` | Build (1.1) |
+| `target/release/api_server` | Build (1.1) |
 | `vivian_english.wav` | English generation (3.2) |
 | `vivian_chinese.wav` | Chinese generation (3.3) |
 | `ryan_reference.wav` | Ryan reference (3.4) |
-| `output_ryan_clone.wav` | X-vector voice clone (3.5) |
-| `output_ryan_clone_icl.wav` | ICL voice clone (3.6) |
+| `output_ryan_clone_icl.wav` | ICL voice clone CLI (3.5) |
+| `output_api_clone.wav` | ICL voice clone API (3.6) |
 | `vivian_urgent_1.7b.wav` | Urgent voice (3.7) |
 | `vivian_happy_1.7b.wav` | Happy voice (3.8) |
 
-**Pass criteria:** All 9 artifacts are present in the uploaded archive and are non-empty files.
+**Pass criteria:** All 10 artifacts are present in the uploaded archive and are non-empty files.
 

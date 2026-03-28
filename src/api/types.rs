@@ -45,12 +45,14 @@ pub struct SpeechRequest {
     #[serde(default)]
     pub instructions: Option<String>,
 
-    /// Base64-encoded reference audio for voice cloning.
+    /// Base64-encoded reference audio for voice cloning (ICL mode).
+    /// Must be accompanied by `audio_sample_text` with the reference transcript.
     #[serde(default)]
     pub audio_sample: Option<String>,
 
-    /// Transcript of the reference audio for ICL (in-context learning) mode.
-    /// When provided together with audio_sample, enables higher-quality voice cloning.
+    /// Transcript of the reference audio (required for voice cloning).
+    /// Voice cloning uses ICL (in-context learning) mode, which conditions generation
+    /// on both the reference audio codec tokens and this text transcript.
     #[serde(default)]
     pub audio_sample_text: Option<String>,
 }

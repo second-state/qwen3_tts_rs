@@ -111,7 +111,7 @@ Other instruction examples:
 
 ### Voice Cloning
 
-Clone a voice from a reference audio file using the Base model:
+Clone a voice from a reference audio file. Voice cloning uses ICL (In-Context Learning) mode, which encodes the reference audio into codec tokens and conditions generation on both the speaker embedding and the reference audio/text transcript. This works with any model that includes a `speech_tokenizer/` directory (both Base and CustomVoice models).
 
 ```bash
 voice_clone <model_path> <ref_audio> [text] [language] [ref_text]
@@ -125,17 +125,7 @@ ffmpeg -i input.m4a -ac 1 -ar 24000 -sample_fmt s16 reference.wav
 
 Sample reference audio files are provided in the `reference_audio/` directory.
 
-**X-vector only mode** (no reference text):
-
-```bash
-voice_clone \
-  Qwen3-TTS-12Hz-0.6B-Base \
-  reference_audio/trump.wav \
-  "Hello world, this is a voice cloning test." \
-  english
-```
-
-**ICL mode** (with reference text, higher quality):
+**CLI example** (with reference text transcript):
 
 ```bash
 voice_clone \
@@ -146,7 +136,7 @@ voice_clone \
   "Angered and appalled millions of Americans across the political spectrum"
 ```
 
-When a reference text transcript is provided as the 5th argument, ICL (In-Context Learning) mode is used, which encodes the reference audio into codec tokens and conditions generation on both the speaker embedding and the reference audio/text. This typically produces higher fidelity voice cloning compared to x-vector only mode.
+**API server:** When using the API server, voice cloning always uses ICL mode. Both `audio_sample` (base64-encoded WAV) and `audio_sample_text` (reference transcript) are required. The speaker encoder is used for the x-vector embedding when available (Base model); otherwise a zero embedding is substituted (CustomVoice model).
 
 Output is written to `output_voice_clone.wav`.
 
@@ -182,7 +172,7 @@ For instruction-controlled voice synthesis (CustomVoice 1.7B, supports emotion/s
 huggingface-cli download Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice --local-dir models/Qwen3-TTS-12Hz-1.7B-CustomVoice
 ```
 
-For voice cloning from reference audio (Base):
+For voice cloning with speaker encoder x-vectors (Base):
 
 ```bash
 huggingface-cli download Qwen/Qwen3-TTS-12Hz-0.6B-Base --local-dir models/Qwen3-TTS-12Hz-0.6B-Base
@@ -272,6 +262,7 @@ cargo build --release
 This produces the CLI tools in `target/release/`:
 - `tts` — text-to-speech generation
 - `voice_clone` — voice cloning from reference audio
+- `api_server` — OpenAI-compatible HTTP API server
 
 ## API Usage
 
@@ -374,70 +365,25 @@ fn main() -> anyhow::Result<()> {
 }
 ```
 
-### Voice Cloning (X-vector)
+### Voice Cloning (ICL)
 
-Clone a voice from reference audio using the Base model with `TTSInference` and `SpeakerEncoder`:
-
-```rust
-use qwen3_tts::audio::{load_wav_file, resample, write_wav_file};
-use qwen3_tts::inference::TTSInference;
-use qwen3_tts::speaker_encoder::SpeakerEncoder;
-use std::path::Path;
-use qwen3_tts::tensor::Device;
-
-fn main() -> anyhow::Result<()> {
-    let device = Device::Cpu;
-    let model_path = Path::new("models/Qwen3-TTS-12Hz-0.6B-Base");
-
-    // Load model and speaker encoder
-    let inference = TTSInference::new(model_path, device)?;
-    let se_config = inference.config().speaker_encoder_config.clone();
-    let speaker_encoder = SpeakerEncoder::load(inference.weights(), &se_config, device)?;
-
-    // Load and resample reference audio to 24kHz
-    let (samples, sr) = load_wav_file("reference.wav")?;
-    let samples = if sr != se_config.sample_rate {
-        resample(&samples, sr, se_config.sample_rate)?
-    } else {
-        samples
-    };
-
-    // Extract speaker embedding and generate speech
-    let speaker_embedding = speaker_encoder.extract_embedding(&samples)?;
-    let (waveform, sample_rate) = inference.generate_with_xvector(
-        "Hello, this is a voice cloning test.",
-        &speaker_embedding,
-        "english",
-        0.9,   // temperature
-        50,    // top_k
-        2048,  // max_codes
-    )?;
-
-    write_wav_file("output.wav", &waveform, sample_rate)?;
-    Ok(())
-}
-```
-
-### Voice Cloning (ICL - Higher Quality)
-
-For higher fidelity voice cloning, use ICL mode which conditions on both the speaker embedding and reference audio codec tokens with their text transcription:
+Clone a voice from reference audio using ICL (In-Context Learning) mode. This works with any model that has a `speech_tokenizer/` directory. The speaker encoder provides an x-vector embedding when available (Base model); otherwise a zero embedding is used (CustomVoice model).
 
 ```rust
 use qwen3_tts::audio::{load_wav_file, resample, write_wav_file};
 use qwen3_tts::audio_encoder::AudioEncoder;
 use qwen3_tts::inference::TTSInference;
 use qwen3_tts::speaker_encoder::SpeakerEncoder;
+use qwen3_tts::tensor::{DType, Device, Tensor};
 use std::path::Path;
-use qwen3_tts::tensor::Device;
 
 fn main() -> anyhow::Result<()> {
     let device = Device::Cpu;
-    let model_path = Path::new("models/Qwen3-TTS-12Hz-0.6B-Base");
+    let model_path = Path::new("models/Qwen3-TTS-12Hz-0.6B-CustomVoice");
 
-    // Load model and speaker encoder
+    // Load model
     let inference = TTSInference::new(model_path, device)?;
     let se_config = inference.config().speaker_encoder_config.clone();
-    let speaker_encoder = SpeakerEncoder::load(inference.weights(), &se_config, device)?;
 
     // Load and resample reference audio to 24kHz
     let (samples, sr) = load_wav_file("reference.wav")?;
@@ -447,8 +393,11 @@ fn main() -> anyhow::Result<()> {
         samples
     };
 
-    // Extract speaker embedding
-    let speaker_embedding = speaker_encoder.extract_embedding(&samples)?;
+    // Extract speaker embedding if speaker encoder is available, otherwise use zeros
+    let speaker_embedding = match SpeakerEncoder::load(inference.weights(), &se_config, device) {
+        Ok(speaker_encoder) => speaker_encoder.extract_embedding(&samples)?,
+        Err(_) => Tensor::zeros(&[se_config.enc_dim as i64], DType::Float32, Device::Cpu),
+    };
 
     // Encode reference audio to codec tokens
     let speech_tokenizer_path = model_path
