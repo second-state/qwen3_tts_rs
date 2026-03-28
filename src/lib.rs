@@ -33,20 +33,23 @@
 //! qwen3_tts::audio::write_wav_file("output.wav", &output.waveforms[0], output.sample_rate)?;
 //! ```
 //!
-//! ## Voice Cloning
+//! ## Voice Cloning (ICL)
+//!
+//! Voice cloning uses ICL (in-context learning) mode, which encodes the reference
+//! audio into codec tokens and conditions generation on both the audio and its
+//! text transcript. This works with any model that includes a `speech_tokenizer/`.
 //!
 //! ```ignore
 //! use qwen3_tts::{Qwen3TTSModel, AudioInput, Language};
 //!
-//! let model = Qwen3TTSModel::from_pretrained("Qwen/Qwen3-TTS-12Hz-1.7B-Base")?;
+//! let model = Qwen3TTSModel::from_pretrained("Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice")?;
 //!
-//! // Clone voice from reference audio
+//! // Clone voice from reference audio (requires transcript)
 //! let output = model.generate_voice_clone(
 //!     "This is synthesized in the cloned voice.",
 //!     Language::English,
 //!     AudioInput::from("reference.wav"),
 //!     Some("This is the reference transcript."),
-//!     false, // Use ICL mode
 //!     None,
 //! )?;
 //! ```
@@ -85,6 +88,7 @@ pub mod tensor;
 #[cfg(feature = "mlx")]
 pub mod backend;
 
+pub mod api;
 pub mod audio;
 pub mod audio_encoder;
 pub mod config;

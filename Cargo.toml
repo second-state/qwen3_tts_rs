@@ -37,6 +37,15 @@ anyhow = "1.0"
 # Logging
 tracing = "0.1"
 
+# API server
+axum = { version = "0.8", features = ["multipart"] }
+tokio = { version = "1", features = ["full"] }
+tokio-stream = "0.1"
+async-stream = "0.3"
+clap = { version = "4", features = ["derive"] }
+tower-http = { version = "0.6", features = ["trace"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
 [features]
 default = ["tch-backend"]
 # Use libtorch/PyTorch as the computation backend (default)
@@ -55,6 +64,10 @@ path = "src/bin/tts.rs"
 [[bin]]
 name = "voice_clone"
 path = "src/bin/voice_clone.rs"
+
+[[bin]]
+name = "api_server"
+path = "src/bin/api_server.rs"
 
 [dev-dependencies]
 tempfile = "3.14"
