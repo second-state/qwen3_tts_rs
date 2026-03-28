@@ -1,6 +1,6 @@
 [package]
 name = "qwen3_tts"
-version = "0.1.5"
+version = "0.2.0"
 edition = "2021"
 authors = ["Michael Yuan <michael@secondstate.io>"]
 description = "Rust port of Qwen3 TTS - Text-to-Speech model"
