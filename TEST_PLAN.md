@@ -338,11 +338,11 @@ mv output.wav vivian_happy_1.7b.wav
 
 The CI runs all tests on three platform targets. Verify the full pipeline works on each:
 
-| Platform | Runner | PyTorch install | Library path env |
-|----------|--------|-----------------|------------------|
-| Linux x86_64 | `ubuntu-latest` | `--index-url https://download.pytorch.org/whl/cpu` | `LD_LIBRARY_PATH` |
-| Linux ARM64 | `ubuntu-24.04-arm` | Default index | `LD_LIBRARY_PATH` |
-| macOS ARM64 | `macos-latest` | Default index | `DYLD_LIBRARY_PATH` |
+| Platform | Runner | Backend | Library path env |
+|----------|--------|---------|------------------|
+| Linux x86_64 | `ubuntu-latest` | tch (libtorch) | `LD_LIBRARY_PATH` |
+| Linux ARM64 | `ubuntu-24.04-arm` | tch (libtorch) | `LD_LIBRARY_PATH` |
+| macOS ARM64 | `macos-latest` | MLX (Metal GPU) | N/A |
 
 **Pass criteria per platform:** All steps in sections 1-3 pass. Build artifacts are uploaded successfully.
 

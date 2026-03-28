@@ -21,11 +21,6 @@ jobs:
             libtorch-url: https://github.com/second-state/libtorch-releases/releases/download/v2.7.1/libtorch-cxx11-abi-aarch64-2.7.1.tar.gz
             libtorch-archive: libtorch.tar.gz
           - os: macos-latest
-            name: macOS ARM64 (tch)
-            backend: tch
-            libtorch-url: https://download.pytorch.org/libtorch/cpu/libtorch-macos-arm64-2.7.1.zip
-            libtorch-archive: libtorch.zip
-          - os: macos-latest
             name: macOS ARM64 (MLX)
             backend: mlx
 
@@ -91,10 +86,6 @@ jobs:
       - name: Set library path (Linux)
         if: runner.os == 'Linux' && matrix.backend == 'tch'
         run: echo "LD_LIBRARY_PATH=${{ github.workspace }}/libtorch/lib:$LD_LIBRARY_PATH" >> "$GITHUB_ENV"
-
-      - name: Set library path (macOS)
-        if: runner.os == 'macOS' && matrix.backend == 'tch'
-        run: echo "DYLD_LIBRARY_PATH=${{ github.workspace }}/libtorch/lib:$DYLD_LIBRARY_PATH" >> "$GITHUB_ENV"
 
       - name: Download model
         run: python3 -c "from huggingface_hub import snapshot_download; snapshot_download('Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice', local_dir='models/Qwen3-TTS-12Hz-0.6B-CustomVoice')"
