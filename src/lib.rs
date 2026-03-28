@@ -85,6 +85,7 @@ pub mod tensor;
 #[cfg(feature = "mlx")]
 pub mod backend;
 
+pub mod api;
 pub mod audio;
 pub mod audio_encoder;
 pub mod config;
