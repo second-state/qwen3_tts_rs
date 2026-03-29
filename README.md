@@ -3,34 +3,147 @@
 [![Crates.io](https://img.shields.io/crates/v/qwen3-tts-rs.svg)](https://crates.io/crates/qwen3-tts-rs)
 [![License](https://img.shields.io/crates/l/qwen3-tts-rs.svg)](https://github.com/second-state/qwen3_tts_rs/blob/main/LICENSE)
 
-A Rust implementation of the Qwen3 Text-to-Speech (TTS) model inference. This project provides two cross-platform CLI tools suitable for agentic skills for AI agents and bots.
+A Rust implementation of the Qwen3 Text-to-Speech (TTS) model inference. Provides three cross-platform CLI tools suitable for agentic skills for AI agents and bots.
 
-- **tts** generates voice wav files from input text and named voice characters.
-- **voice_clone** generates voice wav files from input text and reference audio files.
+- **tts** — generate speech from text with named speaker voices
+- **voice_clone** — clone a voice from reference audio
+- **api_server** — OpenAI-compatible HTTP API server
 
-Supports two backends: **libtorch** (via the `tch` crate, cross-platform with optional CUDA) and **MLX** (Apple Silicon native via Metal GPU). Loads model weights directly from safetensors files and re-implements the complete neural network forward pass in Rust.
+Supports two backends: **libtorch** (via the `tch` crate, cross-platform with optional CUDA) and **MLX** (Apple Silicon native via Metal GPU).
 
 Learn more:
 * [A Rust implementation / CLI](https://github.com/second-state/qwen3_asr_rs) for Qwen3's ASR (Automatic Speech Recognition or Speech-to-Text) models
 * An OpenAI compatible [API server for audio / speech](https://github.com/second-state/qwen3_audio_api/tree/main/rust)
-* An OpenClaw SKILL for voice generation. Copy and Paste to your lobster to [instsll it](https://raw.githubusercontent.com/second-state/qwen3_tts_rs/refs/heads/main/skills/install.md)
+* An OpenClaw SKILL for voice generation. Copy and Paste to your lobster to [install it](https://raw.githubusercontent.com/second-state/qwen3_tts_rs/refs/heads/main/skills/install.md)
 
 ## Quick Start
 
-Run the installer to download binaries, models, and reference audio for your platform:
+### Option A: One-line installer
 
 ```bash
 curl -sSf https://raw.githubusercontent.com/second-state/qwen3_tts_rs/main/install.sh | bash
 ```
 
-The installer detects your OS, CPU, and NVIDIA GPU (if present), then sets up everything in `./qwen3_tts_rs/`. Once complete, generate speech:
+The installer detects your OS, CPU, and NVIDIA GPU (if present), then sets up everything in `./qwen3_tts_rs/`.
+
+### Option B: Manual install from release
+
+**1. Download pre-built binaries** from the [latest release](https://github.com/second-state/qwen3_tts_rs/releases/latest). Pick the archive for your platform:
+
+| Platform | Asset |
+|----------|-------|
+| macOS ARM64 (Apple Silicon) | `qwen3-tts-macos-aarch64.zip` |
+| Linux x86_64 | `qwen3-tts-linux-x86_64.zip` |
+| Linux x86_64 (CUDA) | `qwen3-tts-linux-x86_64-cuda.zip` |
+| Linux ARM64 | `qwen3-tts-linux-aarch64.zip` |
+| Linux ARM64 (CUDA/Jetson) | `qwen3-tts-linux-aarch64-cuda.zip` |
 
 ```bash
-cd qwen3_tts_rs
-./tts models/Qwen3-TTS-12Hz-0.6B-CustomVoice "Hello world, this is a test." Vivian english
+unzip qwen3-tts-<platform>.zip
+cd qwen3-tts-<platform>
 ```
 
-Clone a voice from reference audio:
+The archive includes `tts`, `voice_clone`, `api_server` binaries, bundled `tokenizers/`, and (on Linux) `libtorch/`.
+
+**2. Download model weights** from HuggingFace:
+
+```bash
+pip install huggingface_hub
+# Named-speaker model (0.6B, recommended to start)
+huggingface-cli download Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice --local-dir models/Qwen3-TTS-12Hz-0.6B-CustomVoice
+```
+
+**3. Copy the tokenizer** into the model directory:
+
+```bash
+cp tokenizers/Qwen3-TTS-12Hz-0.6B-CustomVoice/tokenizer.json models/Qwen3-TTS-12Hz-0.6B-CustomVoice/
+```
+
+**4. Run!**
+
+```bash
+./tts models/Qwen3-TTS-12Hz-0.6B-CustomVoice "Hello world, this is a test." Vivian english
+# Output: output.wav (24 kHz)
+```
+
+### Run the API server
+
+```bash
+./api_server models/Qwen3-TTS-12Hz-0.6B-CustomVoice --port 8080
+```
+
+Then call the OpenAI-compatible endpoint:
+
+```bash
+curl -X POST http://localhost:8080/v1/audio/speech \
+  -H "Content-Type: application/json" \
+  -d '{"input": "Hello world!", "voice": "alloy"}' \
+  -o output.wav
+```
+
+### Download additional models
+
+| Model | Use case | Download |
+|-------|----------|----------|
+| Qwen3-TTS-12Hz-0.6B-CustomVoice | Named speakers (default) | `huggingface-cli download Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice --local-dir models/Qwen3-TTS-12Hz-0.6B-CustomVoice` |
+| Qwen3-TTS-12Hz-1.7B-CustomVoice | Named speakers + instruction control | `huggingface-cli download Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice --local-dir models/Qwen3-TTS-12Hz-1.7B-CustomVoice` |
+| Qwen3-TTS-12Hz-0.6B-Base | Voice cloning | `huggingface-cli download Qwen/Qwen3-TTS-12Hz-0.6B-Base --local-dir models/Qwen3-TTS-12Hz-0.6B-Base` |
+
+Remember to copy the matching tokenizer for each model:
+
+```bash
+cp tokenizers/<model-name>/tokenizer.json models/<model-name>/
+```
+
+## Reference
+
+### `tts` — Text-to-Speech
+
+```
+tts <model_path> [text] [speaker] [language] [instruction]
+```
+
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `model_path` | (required) | Path to model directory |
+| `text` | "Hello! This is a test..." | Text to synthesize (max ~4096 chars) |
+| `speaker` | Vivian | Speaker name (see below) |
+| `language` | english | Language: `english`, `chinese`, `japanese`, `korean` |
+| `instruction` | (empty) | Voice style instruction (1.7B models only) |
+
+Output: `output.wav` (24 kHz, 16-bit PCM)
+
+**Available speakers** (CustomVoice models): Vivian, Serena, Ryan, Aiden, Uncle_fu, Ono_anna, Sohee, Eric, Dylan
+
+**Instruction examples** (1.7B CustomVoice only):
+- `"Speak in an urgent and excited voice"`
+- `"Speak happily and joyfully"`
+- `"Speak slowly and calmly"`
+- `"Speak in a whisper"`
+
+### `voice_clone` — Voice Cloning
+
+```
+voice_clone <model_path> <ref_audio> [text] [language] [ref_text]
+```
+
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `model_path` | (required) | Path to model directory |
+| `ref_audio` | (required) | Path to reference WAV file |
+| `text` | "Hello! This is a test..." | Text to synthesize |
+| `language` | english | Language |
+| `ref_text` | (none) | Transcript of reference audio (enables ICL mode, higher quality) |
+
+Output: `output_voice_clone.wav` (24 kHz, 16-bit PCM)
+
+**Preparing reference audio:** Must be mono 24 kHz 16-bit WAV. Convert with ffmpeg:
+
+```bash
+ffmpeg -i input.m4a -ac 1 -ar 24000 -sample_fmt s16 reference.wav
+```
+
+**Example:**
 
 ```bash
 ./voice_clone models/Qwen3-TTS-12Hz-0.6B-Base reference_audio/trump.wav \
@@ -38,185 +151,109 @@ Clone a voice from reference audio:
   "Angered and appalled millions of Americans across the political spectrum"
 ```
 
-Output: `output.wav` / `output_voice_clone.wav` (24kHz audio)
-
-## Architecture
-
-The inference pipeline follows the Python reference implementation:
+### `api_server` — OpenAI-Compatible API
 
 ```
-Text → Tokenizer → Dual-stream Embeddings → TalkerModel (28-layer Transformer)
-                                                    ↓
-                                              codec_head → Code 0
-                                                    ↓
-                                        CodePredictor (5-layer Transformer) → Codes 1-15
-                                                    ↓
-                                              Vocoder → 24kHz Waveform
+api_server <model_path> [--host 127.0.0.1] [--port 8080]
 ```
 
-Key components:
+| Option | Default | Description |
+|--------|---------|-------------|
+| `model_path` | (required) | Path to model directory |
+| `--host` | 127.0.0.1 | Bind address |
+| `--port` | 8080 | Listen port |
 
-| Module | Description |
-|--------|-------------|
-| `inference.rs` | TalkerModel + CodePredictor with dual-stream (text + codec) input |
-| `speaker_encoder.rs` | ECAPA-TDNN speaker encoder for extracting x-vectors from reference audio |
-| `audio_encoder.rs` | Mimi/SEANet speech tokenizer encoder for encoding audio to codec tokens (ICL mode) |
-| `layers.rs` | RMSNorm, RoPE, GQA Attention with QK-Norm, SwiGLU MLP |
-| `vocoder.rs` | ResidualVectorQuantizer, 8-layer pre-transformer, ConvNeXt upsampler, Snake decoder |
-| `config.rs` | Model configuration deserialization from `config.json` |
-| `audio.rs` | WAV file I/O and audio processing utilities |
+**Endpoints:**
 
-## Supported Models
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/v1/audio/speech` | Generate speech (OpenAI-compatible) |
+| GET | `/v1/models` | List available models |
+| GET | `/health` | Health check |
 
-| Model | Parameters | HuggingFace |
-|-------|-----------|-------------|
-| Qwen3-TTS-12Hz-0.6B-CustomVoice | 0.6B | [Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice](https://huggingface.co/Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice) |
-| Qwen3-TTS-12Hz-1.7B-CustomVoice | 1.7B | [Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice](https://huggingface.co/Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice) |
-| Qwen3-TTS-12Hz-0.6B-Base | 0.6B | [Qwen/Qwen3-TTS-12Hz-0.6B-Base](https://huggingface.co/Qwen/Qwen3-TTS-12Hz-0.6B-Base) |
+### API Request: `POST /v1/audio/speech`
 
-## Usage
+```json
+{
+  "input": "Text to synthesize",
+  "voice": "alloy",
+  "model": "qwen3-tts",
+  "response_format": "wav",
+  "speed": 1.0,
+  "stream": false,
+  "language": "english",
+  "instructions": "Speak urgently",
+  "audio_sample": "<base64-encoded WAV>",
+  "audio_sample_text": "Transcript of the reference audio"
+}
+```
 
-### Text-to-Speech
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `input` | string | (required) | Text to synthesize (max 4096 chars) |
+| `voice` | string | `"alloy"` | OpenAI name or Qwen3 speaker name (see mapping below) |
+| `model` | string | — | Accepted for compatibility, ignored |
+| `response_format` | string | `"wav"` | `"wav"` or `"pcm"` |
+| `speed` | float | 1.0 | Speed multiplier (0.25–4.0) |
+| `stream` | bool | false | Enable SSE streaming (requires `response_format: "pcm"`) |
+| `language` | string | `"english"` | `english`, `chinese`, `japanese`, `korean`, `auto` |
+| `instructions` | string | — | Voice style instruction (1.7B models only) |
+| `audio_sample` | string | — | Base64-encoded reference WAV for voice cloning |
+| `audio_sample_text` | string | — | Transcript of reference audio (required with `audio_sample`) |
+
+**Voice name mapping** (OpenAI → Qwen3):
+
+| OpenAI | Qwen3 |
+|--------|-------|
+| alloy | serena |
+| echo | ryan |
+| fable | vivian |
+| onyx | eric |
+| nova | ono_anna |
+| shimmer | sohee |
+
+You can also pass Qwen3 speaker names directly (e.g., `"voice": "vivian"`).
+
+**Streaming:** When `stream: true` and `response_format: "pcm"`, the server returns Server-Sent Events with base64-encoded PCM chunks:
+
+```
+data: {"type":"speech.audio.delta","delta":"<base64 PCM>"}
+data: {"type":"speech.audio.done"}
+```
+
+**Voice cloning via API:**
 
 ```bash
-tts <model_path> [text] [speaker] [language] [instruction]
+# Encode reference audio as base64
+REF_B64=$(base64 < reference.wav)
+
+curl -X POST http://localhost:8080/v1/audio/speech \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"input\": \"Hello from a cloned voice.\",
+    \"voice\": \"alloy\",
+    \"audio_sample\": \"$REF_B64\",
+    \"audio_sample_text\": \"Transcript of the reference audio\"
+  }" -o cloned.wav
 ```
-
-Example:
-
-```bash
-tts Qwen3-TTS-12Hz-0.6B-CustomVoice \
-  "Hello world, this is a test." \
-  Vivian \
-  english
-```
-
-### Instruction-Controlled Voice (1.7B CustomVoice)
-
-The 1.7B CustomVoice model supports instruction control to modulate voice characteristics like emotion, speaking style, and pace:
-
-```bash
-tts Qwen3-TTS-12Hz-1.7B-CustomVoice \
-  "Breaking news! There has been a major development." \
-  Vivian \
-  english \
-  "Speak in an urgent and excited voice"
-```
-
-Other instruction examples:
-- `"Speak happily and joyfully"`
-- `"Speak slowly and calmly"`
-- `"Speak in a whisper"`
-- `"Speak with a sad tone"`
-
-### Voice Cloning
-
-Clone a voice from a reference audio file. Voice cloning uses ICL (In-Context Learning) mode, which encodes the reference audio into codec tokens and conditions generation on both the speaker embedding and the reference audio/text transcript. This works with any model that includes a `speech_tokenizer/` directory (both Base and CustomVoice models).
-
-```bash
-voice_clone <model_path> <ref_audio> [text] [language] [ref_text]
-```
-
-**Preparing reference audio:** The reference audio must be a mono 24kHz 16-bit WAV file. Use ffmpeg to convert from other formats:
-
-```bash
-ffmpeg -i input.m4a -ac 1 -ar 24000 -sample_fmt s16 reference.wav
-```
-
-Sample reference audio files are provided in the `reference_audio/` directory.
-
-**CLI example** (with reference text transcript):
-
-```bash
-voice_clone \
-  Qwen3-TTS-12Hz-0.6B-Base \
-  reference_audio/trump.wav \
-  "Hello world, this is a voice cloning test." \
-  english \
-  "Angered and appalled millions of Americans across the political spectrum"
-```
-
-**API server:** When using the API server, voice cloning always uses ICL mode. Both `audio_sample` (base64-encoded WAV) and `audio_sample_text` (reference transcript) are required. The speaker encoder is used for the x-vector embedding when available (Base model); otherwise a zero embedding is substituted (CustomVoice model).
-
-Output is written to `output_voice_clone.wav`.
-
-### Available speakers (CustomVoice 0.6B)
-
-Vivian, Serena, Ryan, Aiden, Uncle_fu, Ono_anna, Sohee, Eric, Dylan. See the model's `config.json` `spk_id` field for the full list.
-
-### Available languages
-
-`english`, `chinese`, and others defined in the model config.
 
 ## Build from Source
 
-### Prerequisites
+### macOS (MLX backend)
 
-Install Python tools for downloading models and generating tokenizer files:
-
-```bash
-pip install huggingface_hub transformers
-```
-
-#### Download the model
-
-Download the Qwen3-TTS model weights. For speech synthesis with named speakers (CustomVoice 0.6B):
+Requires Apple Silicon Mac, Xcode, and CMake.
 
 ```bash
-huggingface-cli download Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice --local-dir models/Qwen3-TTS-12Hz-0.6B-CustomVoice
-```
-
-For instruction-controlled voice synthesis (CustomVoice 1.7B, supports emotion/style control):
-
-```bash
-huggingface-cli download Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice --local-dir models/Qwen3-TTS-12Hz-1.7B-CustomVoice
-```
-
-For voice cloning with speaker encoder x-vectors (Base):
-
-```bash
-huggingface-cli download Qwen/Qwen3-TTS-12Hz-0.6B-Base --local-dir models/Qwen3-TTS-12Hz-0.6B-Base
-```
-
-#### Generate tokenizer.json
-
-The Rust `tokenizers` crate requires a `tokenizer.json` file with the full tokenizer configuration (including the pre-tokenizer). Generate it from the Python tokenizer for each model you downloaded:
-
-```bash
-python3 -c "
-from transformers import AutoTokenizer
-for model in ['Qwen3-TTS-12Hz-0.6B-CustomVoice', 'Qwen3-TTS-12Hz-0.6B-Base', 'Qwen3-TTS-12Hz-1.7B-CustomVoice']:
-    path = f'models/{model}'
-    tok = AutoTokenizer.from_pretrained(path, trust_remote_code=True)
-    tok.backend_tokenizer.save(f'{path}/tokenizer.json')
-    print(f'Saved {path}/tokenizer.json')
-"
-```
-
-### Build for macOS (MLX)
-
-Requires Apple Silicon Mac, Xcode (full installation for Metal shader compiler), and CMake.
-
-Install dependencies:
-
-```bash
-brew install cmake ffmpeg
-```
-
-Build:
-
-```bash
+brew install cmake
 git clone https://github.com/second-state/qwen3_tts_rs.git
 cd qwen3_tts_rs
 git submodule update --init --recursive
 cargo build --release --no-default-features --features mlx
 ```
 
-### Build for Linux (libtorch)
+### Linux (libtorch backend)
 
-#### Download libtorch
-
-Download and extract libtorch for your platform from [libtorch-releases](https://github.com/second-state/libtorch-releases/releases/tag/v2.7.1):
+**1. Download libtorch** from [libtorch-releases](https://github.com/second-state/libtorch-releases/releases/tag/v2.7.1):
 
 ```bash
 # Linux x86_64 (CPU)
@@ -236,228 +273,18 @@ curl -LO https://github.com/second-state/libtorch-releases/releases/download/v2.
 tar xzf libtorch-cxx11-abi-aarch64-cuda12.6-2.7.1.tar.gz
 ```
 
-#### Set environment variables
+**2. Set environment and build:**
 
 ```bash
 export LIBTORCH=$(pwd)/libtorch
 export LIBTORCH_BYPASS_VERSION_CHECK=1
-```
 
-Alternatively, if you already have Python/PyTorch, see [Troubleshooting: Using pip-installed PyTorch](#using-pip-installed-pytorch).
-
-#### Install dependencies
-
-```bash
-sudo apt-get install -y ffmpeg
-```
-
-#### Build
-
-```bash
 git clone https://github.com/second-state/qwen3_tts_rs.git
 cd qwen3_tts_rs
 cargo build --release
 ```
 
-This produces the CLI tools in `target/release/`:
-- `tts` — text-to-speech generation
-- `voice_clone` — voice cloning from reference audio
-- `api_server` — OpenAI-compatible HTTP API server
-
-## API Usage
-
-Add `qwen3-tts-rs` as a dependency in your `Cargo.toml`:
-
-```toml
-[dependencies]
-qwen3-tts-rs = "0.2"
-```
-
-By default this uses the tch-backend. To use MLX instead:
-
-```toml
-[dependencies]
-qwen3-tts-rs = { version = "0.2", default-features = false, features = ["mlx"] }
-```
-
-### Named Characters (CustomVoice)
-
-Generate speech using a predefined speaker voice:
-
-```rust
-use qwen3_tts_rs::audio::write_wav_file;
-use qwen3_tts_rs::inference::TTSInference;
-use qwen3_tts_rs::tensor::Device;
-use std::path::Path;
-
-fn main() -> anyhow::Result<()> {
-    let inference = TTSInference::new(
-        Path::new("models/Qwen3-TTS-12Hz-0.6B-CustomVoice"),
-        Device::Cpu,
-    )?;
-
-    let (waveform, sample_rate) = inference.generate(
-        "Hello! Welcome to the Qwen3 TTS system.",
-        "Vivian",   // speaker name
-        "english",  // language
-    )?;
-
-    write_wav_file("output.wav", &waveform, sample_rate)?;
-    Ok(())
-}
-```
-
-You can customize generation parameters (temperature, top_k, max codes):
-
-```rust
-let (waveform, sample_rate) = inference.generate_with_params(
-    "This uses custom generation parameters.",
-    "Ryan",
-    "english",
-    0.8,   // temperature
-    30,    // top_k
-    4096,  // max_codes
-)?;
-```
-
-### Instruction-Controlled Voice (1.7B CustomVoice)
-
-The 1.7B CustomVoice model supports instruction control to modulate voice characteristics:
-
-```rust
-use qwen3_tts_rs::audio::write_wav_file;
-use qwen3_tts_rs::inference::TTSInference;
-use std::path::Path;
-use qwen3_tts_rs::tensor::Device;
-
-fn main() -> anyhow::Result<()> {
-    let inference = TTSInference::new(
-        Path::new("models/Qwen3-TTS-12Hz-1.7B-CustomVoice"),
-        Device::Cpu,
-    )?;
-
-    // Generate with instruction control
-    let (waveform, sample_rate) = inference.generate_with_instruct(
-        "Breaking news! There has been a major development.",
-        "Vivian",   // speaker name
-        "english",  // language
-        "Speak in an urgent and excited voice",  // instruction
-        0.9,        // temperature
-        50,         // top_k
-        2048,       // max_codes
-    )?;
-
-    write_wav_file("urgent_news.wav", &waveform, sample_rate)?;
-
-    // Without instruction (pass empty string for neutral voice)
-    let (waveform, sample_rate) = inference.generate_with_instruct(
-        "This is a normal announcement.",
-        "Vivian",
-        "english",
-        "",  // no instruction
-        0.9,
-        50,
-        2048,
-    )?;
-
-    write_wav_file("neutral.wav", &waveform, sample_rate)?;
-    Ok(())
-}
-```
-
-### Voice Cloning (ICL)
-
-Clone a voice from reference audio using ICL (In-Context Learning) mode. This works with any model that has a `speech_tokenizer/` directory. The speaker encoder provides an x-vector embedding when available (Base model); otherwise a zero embedding is used (CustomVoice model).
-
-```rust
-use qwen3_tts_rs::audio::{load_wav_file, resample, write_wav_file};
-use qwen3_tts_rs::audio_encoder::AudioEncoder;
-use qwen3_tts_rs::inference::TTSInference;
-use qwen3_tts_rs::speaker_encoder::SpeakerEncoder;
-use qwen3_tts_rs::tensor::{DType, Device, Tensor};
-use std::path::Path;
-
-fn main() -> anyhow::Result<()> {
-    let device = Device::Cpu;
-    let model_path = Path::new("models/Qwen3-TTS-12Hz-0.6B-CustomVoice");
-
-    // Load model
-    let inference = TTSInference::new(model_path, device)?;
-    let se_config = inference.config().speaker_encoder_config.clone();
-
-    // Load and resample reference audio to 24kHz
-    let (samples, sr) = load_wav_file("reference.wav")?;
-    let samples = if sr != se_config.sample_rate {
-        resample(&samples, sr, se_config.sample_rate)?
-    } else {
-        samples
-    };
-
-    // Extract speaker embedding if speaker encoder is available, otherwise use zeros
-    let speaker_embedding = match SpeakerEncoder::load(inference.weights(), &se_config, device) {
-        Ok(speaker_encoder) => speaker_encoder.extract_embedding(&samples)?,
-        Err(_) => Tensor::zeros(&[se_config.enc_dim as i64], DType::Float32, Device::Cpu),
-    };
-
-    // Encode reference audio to codec tokens
-    let speech_tokenizer_path = model_path
-        .join("speech_tokenizer")
-        .join("model.safetensors");
-    let audio_encoder = AudioEncoder::load(&speech_tokenizer_path, device)?;
-    let ref_codes = audio_encoder.encode(&samples)?;
-
-    // Generate with ICL (reference text + codec tokens + speaker embedding)
-    let (waveform, sample_rate) = inference.generate_with_icl(
-        "Hello, this is a voice cloning test.",
-        "This is the transcript of the reference audio.",
-        &ref_codes,
-        &speaker_embedding,
-        "english",
-        0.9,   // temperature
-        50,    // top_k
-        2048,  // max_codes
-    )?;
-
-    write_wav_file("output.wav", &waveform, sample_rate)?;
-    Ok(())
-}
-```
-
-### Audio Utilities
-
-The `audio` module provides helpers for reading and writing audio:
-
-```rust
-use qwen3_tts_rs::audio::{load_wav_file, resample, write_wav_file};
-
-// Read a WAV file
-let (samples, sample_rate) = load_wav_file("input.wav")?;
-
-// Write WAV to file
-write_wav_file("output.wav", &samples, sample_rate)?;
-
-// Resample between sample rates
-let resampled = resample(&samples, 44100, 24000)?;
-```
-
-## Dependencies
-
-- **tch** (0.23, optional): PyTorch/libtorch bindings — used by the `tch-backend` feature (default)
-- **mlx-c** (submodule, optional): Apple MLX C bindings — used by the `mlx` feature
-- **tokenizers** (0.21): HuggingFace tokenizers for BPE text tokenization
-- **hound**: WAV file reading/writing
-- **serde/serde_json**: Configuration deserialization
-- **thiserror/anyhow**: Error handling
-
-## License
-
-Apache-2.0
-
-## Troubleshooting
-
-### Using pip-installed PyTorch
-
-If you already have Python installed, you can use pip-installed PyTorch instead of downloading libtorch separately:
+Alternatively, use pip-installed PyTorch instead of downloading libtorch:
 
 ```bash
 pip install torch==2.7.1
@@ -465,14 +292,84 @@ export LIBTORCH_USE_PYTORCH=1
 export LD_LIBRARY_PATH=$(python3 -c "import torch; print(torch.__path__[0])")/lib:$LD_LIBRARY_PATH
 ```
 
-### Test weight loading
+### Download models and generate tokenizer
 
-Verify that model weights load correctly by building and running the `test_weights` diagnostic example:
+After building, download models and generate `tokenizer.json` for each:
 
 ```bash
-cargo build --examples --release
-./target/release/examples/test_weights models/Qwen3-TTS-12Hz-0.6B-CustomVoice
+pip install huggingface_hub transformers
+
+huggingface-cli download Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice --local-dir models/Qwen3-TTS-12Hz-0.6B-CustomVoice
+
+python3 -c "
+from transformers import AutoTokenizer
+for model in ['Qwen3-TTS-12Hz-0.6B-CustomVoice', 'Qwen3-TTS-12Hz-0.6B-Base', 'Qwen3-TTS-12Hz-1.7B-CustomVoice']:
+    path = f'models/{model}'
+    try:
+        tok = AutoTokenizer.from_pretrained(path, trust_remote_code=True)
+        tok.backend_tokenizer.save(f'{path}/tokenizer.json')
+        print(f'Saved {path}/tokenizer.json')
+    except Exception as e:
+        print(f'Skipped {model}: {e}')
+"
 ```
+
+Binaries are in `target/release/`: `tts`, `voice_clone`, `api_server`.
+
+### Rust library usage
+
+Add to your `Cargo.toml`:
+
+```toml
+[dependencies]
+qwen3-tts-rs = "0.2"
+# Or for MLX backend:
+# qwen3-tts-rs = { version = "0.2", default-features = false, features = ["mlx"] }
+```
+
+See the [API documentation on docs.rs](https://docs.rs/qwen3-tts-rs) for library usage examples.
+
+## Performance (Apple M4 Mac, MLX backend)
+
+Benchmarks with the **0.6B CustomVoice** model on Apple M4 MacBook Pro.
+
+### CLI (`tts` / `voice_clone`)
+
+| Test | Speaker | Language | Audio | Wall Time | RTF |
+|------|---------|----------|-------|-----------|-----|
+| Preset voice | Vivian | English | 5.92s | 10.93s | 1.85x |
+| Preset voice | Ryan | English | 8.16s | 14.15s | 1.73x |
+| Preset voice | Vivian | Chinese | 6.64s | 11.26s | 1.70x |
+| Voice clone (ICL) | ref audio | English | 7.04s | 16.77s | 2.38x |
+
+### API server (after warmup)
+
+| Test | Voice | Mode | Audio | Wall Time | RTF |
+|------|-------|------|-------|-----------|-----|
+| Non-streaming WAV | alloy (serena) | full | 6.40s | 9.90s | 1.55x |
+| Non-streaming WAV | echo (ryan) | full | 8.00s | 12.70s | 1.59x |
+| Streaming PCM | alloy (serena) | stream | ~6.4s | 10.22s | ~1.60x |
+| Voice clone WAV | alloy + ref | full | 9.04s | 20.11s | 2.22x |
+
+**RTF** = Real-Time Factor (wall time / audio duration). Lower is better; < 1.0 means faster than real-time.
+
+Test sentences: ~15–20 words in English ("The quick brown fox..." / "Scientists have discovered...") and Chinese.
+
+## Architecture
+
+```
+Text → Tokenizer → Dual-stream Embeddings → TalkerModel (28-layer Transformer)
+                                                    ↓
+                                              codec_head → Code 0
+                                                    ↓
+                                        CodePredictor (5-layer Transformer) → Codes 1-15
+                                                    ↓
+                                              Vocoder → 24kHz Waveform
+```
+
+## License
+
+Apache-2.0
 
 ## Credits
 

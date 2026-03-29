@@ -31,30 +31,19 @@ Available reference speakers: `trump`, `elon_musk`.
 - **`tts`** — When the user wants to generate speech from text using a named speaker (Vivian, Ryan, etc.). Supports English and Chinese.
 - **`voice_clone`** — When the user wants to clone a specific voice from a reference audio file and generate new speech in that voice. If the user asks to clone a voice by speaker name (e.g., "speak like Trump", "use Elon Musk's voice"), check `{baseDir}/scripts/reference_audio/` for a matching `<speaker_name>.wav` and `<speaker_name>.txt` pair, and use ICL mode with both files.
 
-## Environment Setup (Linux only)
+## Linux Environment Setup
 
-On Linux, the binaries require libtorch shared libraries. Set the library path before running:
+On Linux, the binaries require libtorch shared libraries. Set the library path before running any command:
 
 ```bash
 export LD_LIBRARY_PATH={baseDir}/scripts/libtorch/lib:$LD_LIBRARY_PATH
 ```
 
-On macOS, no environment setup is needed (the binaries use the MLX backend).
+On macOS, no environment setup is needed (the binaries use the MLX backend). All commands below show the macOS form. On Linux, prefix each command with `LD_LIBRARY_PATH={baseDir}/scripts/libtorch/lib:$LD_LIBRARY_PATH`.
 
 ## Text-to-Speech
 
 Generate speech audio from text with a named speaker.
-
-```bash
-LD_LIBRARY_PATH={baseDir}/scripts/libtorch/lib:$LD_LIBRARY_PATH \
-  {baseDir}/scripts/tts \
-  {baseDir}/scripts/models/Qwen3-TTS-12Hz-0.6B-CustomVoice \
-  "<text>" \
-  <speaker> \
-  <language>
-```
-
-On macOS, omit the `LD_LIBRARY_PATH` prefix:
 
 ```bash
 {baseDir}/scripts/tts \
@@ -84,29 +73,27 @@ Generates `output.wav` (24kHz mono WAV) in the current working directory.
 ### Example
 
 ```bash
-LD_LIBRARY_PATH={baseDir}/scripts/libtorch/lib:$LD_LIBRARY_PATH \
-  {baseDir}/scripts/tts \
+{baseDir}/scripts/tts \
   {baseDir}/scripts/models/Qwen3-TTS-12Hz-0.6B-CustomVoice \
   "Hello! Welcome to the Qwen3 text-to-speech system." \
   Vivian \
   english
 ```
 
-## Voice Cloning
+## Voice Cloning (ICL Mode)
 
-Clone a voice from a reference audio file and generate new speech.
+Clone a voice from a reference audio file using ICL (In-Context Learning). This encodes the reference audio into codec tokens and conditions generation on both the speaker embedding and the reference audio/text transcript, producing high-fidelity voice cloning.
+
+Both a reference audio file and its transcript text are required.
 
 ```bash
-LD_LIBRARY_PATH={baseDir}/scripts/libtorch/lib:$LD_LIBRARY_PATH \
-  {baseDir}/scripts/voice_clone \
+{baseDir}/scripts/voice_clone \
   {baseDir}/scripts/models/Qwen3-TTS-12Hz-0.6B-Base \
   <reference_audio.wav> \
   "<text>" \
   <language> \
-  ["<reference_text>"]
+  "<reference_text>"
 ```
-
-On macOS, omit the `LD_LIBRARY_PATH` prefix.
 
 ### Parameters
 
@@ -116,7 +103,7 @@ On macOS, omit the `LD_LIBRARY_PATH` prefix.
 | reference_audio | Yes | Path to reference WAV file (mono 24kHz 16-bit) |
 | text | Yes | The text to synthesize in the cloned voice |
 | language | Yes | `english` or `chinese` |
-| reference_text | No | Transcript of the reference audio (enables ICL mode for higher quality) |
+| reference_text | Yes | Transcript of the reference audio |
 
 ### Reference Audio Requirements
 
@@ -130,30 +117,16 @@ ffmpeg -i input.m4a -ac 1 -ar 24000 -sample_fmt s16 reference.wav
 
 Generates `output_voice_clone.wav` (24kHz mono WAV) in the current working directory.
 
-### Example — X-vector Mode (no reference text)
+### Example
 
 ```bash
-LD_LIBRARY_PATH={baseDir}/scripts/libtorch/lib:$LD_LIBRARY_PATH \
-  {baseDir}/scripts/voice_clone \
-  {baseDir}/scripts/models/Qwen3-TTS-12Hz-0.6B-Base \
-  reference.wav \
-  "This is a voice cloning test." \
-  english
-```
-
-### Example — ICL Mode (with reference text, higher quality)
-
-```bash
-LD_LIBRARY_PATH={baseDir}/scripts/libtorch/lib:$LD_LIBRARY_PATH \
-  {baseDir}/scripts/voice_clone \
+{baseDir}/scripts/voice_clone \
   {baseDir}/scripts/models/Qwen3-TTS-12Hz-0.6B-Base \
   reference.wav \
   "This is a voice cloning test with in-context learning." \
   english \
   "The transcript of what was said in the reference audio."
 ```
-
-When a reference text transcript is provided as the last argument, ICL (In-Context Learning) mode is used. This encodes the reference audio into codec tokens and conditions generation on both the speaker embedding and the reference audio/text, producing higher fidelity voice cloning.
 
 ## Workflow
 
@@ -169,12 +142,12 @@ When a reference text transcript is provided as the last argument, ICL (In-Conte
 - For `voice_clone` with a named reference speaker:
   1. Look up `{baseDir}/scripts/reference_audio/<speaker_name>.wav` and `{baseDir}/scripts/reference_audio/<speaker_name>.txt`.
   2. Read the transcript from the `.txt` file.
-  3. Use ICL mode by passing both the `.wav` file and the transcript text.
-- For `voice_clone` with a user-provided audio file: Ensure the reference audio is a mono 24kHz 16-bit WAV. Convert if needed using ffmpeg.
+  3. Pass both the `.wav` file and the transcript text.
+- For `voice_clone` with a user-provided audio file: Ensure the reference audio is a mono 24kHz 16-bit WAV. Convert if needed using ffmpeg. Ask the user for the transcript of the reference audio.
 
 ### 3. Run the Command
 
-Run the appropriate binary with `LD_LIBRARY_PATH` set (Linux only). Use the full paths to the binaries and model directories.
+Run the appropriate binary using the full paths to the binaries and model directories. On Linux, prefix with `LD_LIBRARY_PATH={baseDir}/scripts/libtorch/lib:$LD_LIBRARY_PATH`.
 
 ### Example: Clone by Speaker Name
 
@@ -184,17 +157,14 @@ If the user says "Say hello world in Trump's voice":
 # Read the transcript
 REF_TEXT=$(cat {baseDir}/scripts/reference_audio/trump.txt)
 
-# Run voice clone with ICL mode (Linux)
-LD_LIBRARY_PATH={baseDir}/scripts/libtorch/lib:$LD_LIBRARY_PATH \
-  {baseDir}/scripts/voice_clone \
+# Run voice clone with ICL mode
+{baseDir}/scripts/voice_clone \
   {baseDir}/scripts/models/Qwen3-TTS-12Hz-0.6B-Base \
   {baseDir}/scripts/reference_audio/trump.wav \
   "Hello world" \
   english \
   "$REF_TEXT"
 ```
-
-On macOS, omit the `LD_LIBRARY_PATH` prefix.
 
 ### 4. Return the Output
 
