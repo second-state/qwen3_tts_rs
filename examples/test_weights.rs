@@ -9,7 +9,7 @@
 //! Example:
 //!   test_weights ./models/Qwen3-TTS-12Hz-0.6B-CustomVoice
 
-use qwen_tts_rs::tensor::{DType, Tensor};
+use qwen3_tts_rs::tensor::{DType, Tensor};
 use std::path::Path;
 
 fn main() -> anyhow::Result<()> {

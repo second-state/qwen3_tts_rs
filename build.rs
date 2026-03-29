@@ -1,4 +1,4 @@
-// Build script for qwen_tts_rs.
+// Build script for qwen3-tts-rs.
 //
 // When the `mlx` feature is enabled (macOS only), this script:
 // 1. Builds the mlx-c library from the git submodule via CMake

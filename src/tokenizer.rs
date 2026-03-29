@@ -87,7 +87,7 @@ impl Default for TokenizerConfig {
 /// # Example
 ///
 /// ```ignore
-/// use qwen_tts_rs::tokenizer::Qwen3TTSTokenizer;
+/// use qwen3_tts_rs::tokenizer::Qwen3TTSTokenizer;
 ///
 /// let tokenizer = Qwen3TTSTokenizer::from_pretrained("Qwen/Qwen3-TTS-Tokenizer-12Hz")?;
 ///

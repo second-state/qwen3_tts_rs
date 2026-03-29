@@ -1,7 +1,7 @@
 # Qwen3 TTS - Rust CLI tools
 
-[![Crates.io](https://img.shields.io/crates/v/qwen_tts_rs.svg)](https://crates.io/crates/qwen_tts_rs)
-[![License](https://img.shields.io/crates/l/qwen_tts_rs.svg)](https://github.com/second-state/qwen3_tts_rs/blob/main/LICENSE)
+[![Crates.io](https://img.shields.io/crates/v/qwen3-tts-rs.svg)](https://crates.io/crates/qwen3-tts-rs)
+[![License](https://img.shields.io/crates/l/qwen3-tts-rs.svg)](https://github.com/second-state/qwen3_tts_rs/blob/main/LICENSE)
 
 A Rust implementation of the Qwen3 Text-to-Speech (TTS) model inference. This project provides two cross-platform CLI tools suitable for agentic skills for AI agents and bots.
 
@@ -266,18 +266,18 @@ This produces the CLI tools in `target/release/`:
 
 ## API Usage
 
-Add `qwen_tts_rs` as a dependency in your `Cargo.toml`:
+Add `qwen3-tts-rs` as a dependency in your `Cargo.toml`:
 
 ```toml
 [dependencies]
-qwen_tts_rs = "0.2"
+qwen3-tts-rs = "0.2"
 ```
 
 By default this uses the tch-backend. To use MLX instead:
 
 ```toml
 [dependencies]
-qwen_tts_rs = { version = "0.2", default-features = false, features = ["mlx"] }
+qwen3-tts-rs = { version = "0.2", default-features = false, features = ["mlx"] }
 ```
 
 ### Named Characters (CustomVoice)
@@ -285,9 +285,9 @@ qwen_tts_rs = { version = "0.2", default-features = false, features = ["mlx"] }
 Generate speech using a predefined speaker voice:
 
 ```rust
-use qwen_tts_rs::audio::write_wav_file;
-use qwen_tts_rs::inference::TTSInference;
-use qwen_tts_rs::tensor::Device;
+use qwen3_tts_rs::audio::write_wav_file;
+use qwen3_tts_rs::inference::TTSInference;
+use qwen3_tts_rs::tensor::Device;
 use std::path::Path;
 
 fn main() -> anyhow::Result<()> {
@@ -325,10 +325,10 @@ let (waveform, sample_rate) = inference.generate_with_params(
 The 1.7B CustomVoice model supports instruction control to modulate voice characteristics:
 
 ```rust
-use qwen_tts_rs::audio::write_wav_file;
-use qwen_tts_rs::inference::TTSInference;
+use qwen3_tts_rs::audio::write_wav_file;
+use qwen3_tts_rs::inference::TTSInference;
 use std::path::Path;
-use qwen_tts_rs::tensor::Device;
+use qwen3_tts_rs::tensor::Device;
 
 fn main() -> anyhow::Result<()> {
     let inference = TTSInference::new(
@@ -370,11 +370,11 @@ fn main() -> anyhow::Result<()> {
 Clone a voice from reference audio using ICL (In-Context Learning) mode. This works with any model that has a `speech_tokenizer/` directory. The speaker encoder provides an x-vector embedding when available (Base model); otherwise a zero embedding is used (CustomVoice model).
 
 ```rust
-use qwen_tts_rs::audio::{load_wav_file, resample, write_wav_file};
-use qwen_tts_rs::audio_encoder::AudioEncoder;
-use qwen_tts_rs::inference::TTSInference;
-use qwen_tts_rs::speaker_encoder::SpeakerEncoder;
-use qwen_tts_rs::tensor::{DType, Device, Tensor};
+use qwen3_tts_rs::audio::{load_wav_file, resample, write_wav_file};
+use qwen3_tts_rs::audio_encoder::AudioEncoder;
+use qwen3_tts_rs::inference::TTSInference;
+use qwen3_tts_rs::speaker_encoder::SpeakerEncoder;
+use qwen3_tts_rs::tensor::{DType, Device, Tensor};
 use std::path::Path;
 
 fn main() -> anyhow::Result<()> {
@@ -428,7 +428,7 @@ fn main() -> anyhow::Result<()> {
 The `audio` module provides helpers for reading and writing audio:
 
 ```rust
-use qwen_tts_rs::audio::{load_wav_file, resample, write_wav_file};
+use qwen3_tts_rs::audio::{load_wav_file, resample, write_wav_file};
 
 // Read a WAV file
 let (samples, sample_rate) = load_wav_file("input.wav")?;

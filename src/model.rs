@@ -126,7 +126,7 @@ impl GenerationParams {
 /// # Example
 ///
 /// ```ignore
-/// use qwen_tts_rs::model::Qwen3TTSModel;
+/// use qwen3_tts_rs::model::Qwen3TTSModel;
 ///
 /// let model = Qwen3TTSModel::from_pretrained("Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice")?;
 ///
@@ -140,7 +140,7 @@ impl GenerationParams {
 /// )?;
 ///
 /// // Save to file
-/// qwen_tts_rs::audio::write_wav_file("output.wav", &output.waveforms[0], output.sample_rate)?;
+/// qwen3_tts_rs::audio::write_wav_file("output.wav", &output.waveforms[0], output.sample_rate)?;
 /// ```
 pub struct Qwen3TTSModel {
     /// Model configuration

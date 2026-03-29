@@ -15,7 +15,7 @@
 //! ## Quick Start
 //!
 //! ```ignore
-//! use qwen_tts_rs::{Qwen3TTSModel, Language, Speaker};
+//! use qwen3_tts_rs::{Qwen3TTSModel, Language, Speaker};
 //!
 //! // Load a pretrained model
 //! let model = Qwen3TTSModel::from_pretrained("Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice")?;
@@ -30,7 +30,7 @@
 //! )?;
 //!
 //! // Save the output
-//! qwen_tts_rs::audio::write_wav_file("output.wav", &output.waveforms[0], output.sample_rate)?;
+//! qwen3_tts_rs::audio::write_wav_file("output.wav", &output.waveforms[0], output.sample_rate)?;
 //! ```
 //!
 //! ## Voice Cloning (ICL)
@@ -40,7 +40,7 @@
 //! text transcript. This works with any model that includes a `speech_tokenizer/`.
 //!
 //! ```ignore
-//! use qwen_tts_rs::{Qwen3TTSModel, AudioInput, Language};
+//! use qwen3_tts_rs::{Qwen3TTSModel, AudioInput, Language};
 //!
 //! let model = Qwen3TTSModel::from_pretrained("Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice")?;
 //!
@@ -57,7 +57,7 @@
 //! ## Voice Design
 //!
 //! ```ignore
-//! use qwen_tts_rs::{Qwen3TTSModel, Language, VoiceInstruction};
+//! use qwen3_tts_rs::{Qwen3TTSModel, Language, VoiceInstruction};
 //!
 //! let model = Qwen3TTSModel::from_pretrained("Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign")?;
 //!
