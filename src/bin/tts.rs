@@ -12,6 +12,7 @@
 //! Example (with instruction control, requires 1.7B model):
 //!   tts ./models/Qwen3-TTS-12Hz-1.7B-CustomVoice "This is urgent news!" Vivian english "Speak in an urgent and excited voice"
 
+use qwen3_tts_rs::api::chunking::chunk_text;
 use qwen3_tts_rs::audio::write_wav_file;
 use qwen3_tts_rs::inference::TTSInference;
 use std::path::Path;
@@ -73,30 +74,46 @@ fn main() -> anyhow::Result<()> {
     }
     println!();
 
-    let (waveform, sample_rate) = inference.generate_with_instruct(
-        text,
-        speaker,
-        language,
-        instruction,
-        0.9,  // temperature
-        50,   // top_k
-        2048, // max_codes
-    )?;
+    let chunks = chunk_text(text, 400);
+    let num_chunks = chunks.len();
+
+    let mut all_waveform: Vec<f32> = Vec::new();
+    let mut sample_rate = 24000u32;
+
+    for (i, chunk) in chunks.iter().enumerate() {
+        if num_chunks > 1 {
+            println!("Generating chunk {}/{}...", i + 1, num_chunks);
+            println!("  Chunk: \"{}\"", chunk);
+        }
+
+        let (waveform, sr) = inference.generate_with_instruct(
+            chunk,
+            speaker,
+            language,
+            instruction,
+            0.9,  // temperature
+            50,   // top_k
+            2048, // max_codes
+        )?;
+
+        sample_rate = sr;
+        all_waveform.extend_from_slice(&waveform);
+    }
 
     let output_path = "output.wav";
     println!();
     println!("Writing output to: {}", output_path);
 
-    write_wav_file(output_path, &waveform, sample_rate)?;
+    write_wav_file(output_path, &all_waveform, sample_rate)?;
 
     println!(
         "Done! Generated {} samples at {} Hz",
-        waveform.len(),
+        all_waveform.len(),
         sample_rate
     );
     println!(
         "Duration: {:.2} seconds",
-        waveform.len() as f64 / sample_rate as f64
+        all_waveform.len() as f64 / sample_rate as f64
     );
 
     Ok(())

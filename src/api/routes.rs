@@ -3,7 +3,7 @@
 
 //! Route handlers for the OpenAI-compatible TTS API.
 
-use crate::api::chunking::{chunk_text_streaming, FIRST_CHUNK_MAX, REST_CHUNK_MAX};
+use crate::api::chunking::{chunk_text, chunk_text_streaming, FIRST_CHUNK_MAX, REST_CHUNK_MAX};
 use crate::api::types::*;
 use crate::audio::{load_wav_bytes, resample, write_wav_bytes};
 use crate::audio_encoder::AudioEncoder;
@@ -284,7 +284,7 @@ fn prepare_clone_data(state: &AppState, req: &SpeechRequest) -> Result<CloneData
     })
 }
 
-/// Generate audio for a single text (non-streaming path).
+/// Generate audio for text with automatic chunking (non-streaming path).
 fn generate_audio(state: &AppState, req: &SpeechRequest) -> Result<(Vec<f32>, u32), ApiError> {
     let voice = map_voice(&req.voice);
     let language = req
@@ -293,30 +293,45 @@ fn generate_audio(state: &AppState, req: &SpeechRequest) -> Result<(Vec<f32>, u3
         .unwrap_or("english");
     let instructions = req.instructions.as_deref().unwrap_or("");
 
+    let chunks = chunk_text(&req.input, 400);
+
     let models = state.lock().map_err(|e| ApiError::internal(e.to_string()))?;
 
-    // Voice cloning path (ICL mode)
-    if let Some(audio_b64) = &req.audio_sample {
+    // Pre-process voice cloning data once if needed
+    let clone_args = if let Some(audio_b64) = &req.audio_sample {
         let ref_text = req.audio_sample_text.as_deref().ok_or_else(|| {
             ApiError::bad_request(
                 "Voice cloning requires audio_sample_text (transcript of the reference audio)",
             )
         })?;
-        return generate_with_clone(&models, &req.input, language, audio_b64, ref_text);
+        Some((audio_b64.as_str(), ref_text))
+    } else {
+        None
+    };
+
+    let mut all_waveform: Vec<f32> = Vec::new();
+    let mut sample_rate = 24000u32;
+
+    for chunk in &chunks {
+        let (waveform, sr) = if let Some((audio_b64, ref_text)) = clone_args {
+            generate_with_clone(&models, chunk, language, audio_b64, ref_text)?
+        } else if !instructions.is_empty() {
+            models
+                .inference
+                .generate_with_instruct(chunk, voice, language, instructions, 0.9, 50, 2048)
+                .map_err(ApiError::from)?
+        } else {
+            models
+                .inference
+                .generate_with_params(chunk, voice, language, 0.9, 50, 2048)
+                .map_err(ApiError::from)?
+        };
+
+        sample_rate = sr;
+        all_waveform.extend_from_slice(&waveform);
     }
 
-    // Standard generation with instruction support
-    if !instructions.is_empty() {
-        models
-            .inference
-            .generate_with_instruct(&req.input, voice, language, instructions, 0.9, 50, 2048)
-            .map_err(ApiError::from)
-    } else {
-        models
-            .inference
-            .generate_with_params(&req.input, voice, language, 0.9, 50, 2048)
-            .map_err(ApiError::from)
-    }
+    Ok((all_waveform, sample_rate))
 }
 
 /// Generate audio using voice cloning (ICL mode).

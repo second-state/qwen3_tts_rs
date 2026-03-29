@@ -15,6 +15,7 @@
 //!     "Hello world, this is a voice cloning test." english \
 //!     "This is the transcript of the reference audio."
 
+use qwen3_tts_rs::api::chunking::chunk_text;
 use qwen3_tts_rs::audio::write_wav_file;
 use qwen3_tts_rs::audio_encoder::AudioEncoder;
 use qwen3_tts_rs::inference::TTSInference;
@@ -123,8 +124,11 @@ fn main() -> anyhow::Result<()> {
     }
     println!();
 
-    let (waveform, sample_rate) = if icl_mode {
-        // ICL mode: encode reference audio to codec tokens, then generate with ICL
+    let chunks = chunk_text(text, 400);
+    let num_chunks = chunks.len();
+
+    // Pre-load audio encoder and encode reference audio once (for ICL mode)
+    let icl_data = if icl_mode {
         let ref_text_str = ref_text.unwrap();
 
         println!("=== ICL Mode: Encoding reference audio ===");
@@ -138,37 +142,56 @@ fn main() -> anyhow::Result<()> {
         let ref_codes = audio_encoder.encode(&ref_samples)?;
         println!("  Encoded {} codec frames", ref_codes.len());
 
-        println!();
-        println!("=== Generating with ICL ===");
-        inference.generate_with_icl(
-            text,
-            ref_text_str,
-            &ref_codes,
-            &speaker_embedding,
-            language,
-            0.9,
-            50,
-            2048,
-        )?
+        Some((ref_codes, ref_text_str))
     } else {
-        // X-vector only mode
-        inference.generate_with_xvector(text, &speaker_embedding, language, 0.9, 50, 2048)?
+        None
     };
 
-    // Step 6: Write output
+    println!();
+    println!("=== Generating speech ===");
+
+    let mut all_waveform: Vec<f32> = Vec::new();
+    let mut sample_rate = 24000u32;
+
+    for (i, chunk) in chunks.iter().enumerate() {
+        if num_chunks > 1 {
+            println!("Generating chunk {}/{}...", i + 1, num_chunks);
+            println!("  Chunk: \"{}\"", chunk);
+        }
+
+        let (waveform, sr) = if let Some((ref ref_codes, ref_text_str)) = &icl_data {
+            inference.generate_with_icl(
+                chunk,
+                ref_text_str,
+                ref_codes,
+                &speaker_embedding,
+                language,
+                0.9,
+                50,
+                2048,
+            )?
+        } else {
+            inference.generate_with_xvector(chunk, &speaker_embedding, language, 0.9, 50, 2048)?
+        };
+
+        sample_rate = sr;
+        all_waveform.extend_from_slice(&waveform);
+    }
+
+    // Write output
     let output_path = "output_voice_clone.wav";
     println!();
     println!("Writing output to: {}", output_path);
-    write_wav_file(output_path, &waveform, sample_rate)?;
+    write_wav_file(output_path, &all_waveform, sample_rate)?;
 
     println!(
         "Done! Generated {} samples at {} Hz",
-        waveform.len(),
+        all_waveform.len(),
         sample_rate
     );
     println!(
         "Duration: {:.2} seconds",
-        waveform.len() as f64 / sample_rate as f64
+        all_waveform.len() as f64 / sample_rate as f64
     );
 
     Ok(())

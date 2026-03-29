@@ -204,6 +204,42 @@ jobs:
           kill $API_PID || true
           echo "All 4 API server tests passed"
 
+      - name: Long text chunking - tts
+        run: |
+          ./target/release/tts \
+            models/Qwen3-TTS-12Hz-0.6B-CustomVoice \
+            "The quick brown fox jumps over the lazy dog near the old stone bridge by the river. Scientists have discovered a new species of deep sea fish that produces its own light in the darkness. Artificial intelligence is transforming how we live and work every day. The future of technology holds incredible promise for humanity across the globe. Meanwhile, researchers at the university have published groundbreaking findings about climate change and its impact on coastal ecosystems around the world." \
+            Vivian \
+            english
+          mv output.wav vivian_long_text.wav
+          test -s vivian_long_text.wav
+
+      - name: Long text chunking - voice clone
+        run: |
+          ./target/release/voice_clone \
+            models/Qwen3-TTS-12Hz-0.6B-Base \
+            ryan_reference.wav \
+            "The quick brown fox jumps over the lazy dog near the old stone bridge by the river. Scientists have discovered a new species of deep sea fish that produces its own light in the darkness. Artificial intelligence is transforming how we live and work every day. The future of technology holds incredible promise for humanity across the globe." \
+            english \
+            "The quick brown fox jumps over the lazy dog."
+          mv output_voice_clone.wav clone_long_text.wav
+          test -s clone_long_text.wav
+
+      - name: Long text chunking - API non-streaming
+        run: |
+          ./target/release/api_server models/Qwen3-TTS-12Hz-0.6B-CustomVoice --port 8081 &
+          API_PID=$!
+          sleep 5
+
+          curl -sf -X POST http://127.0.0.1:8081/v1/audio/speech \
+            -H "Content-Type: application/json" \
+            -d '{"input":"The quick brown fox jumps over the lazy dog near the old stone bridge by the river. Scientists have discovered a new species of deep sea fish that produces its own light in the darkness. Artificial intelligence is transforming how we live and work every day. The future of technology holds incredible promise for humanity across the globe. Meanwhile, researchers at the university have published groundbreaking findings about climate change.","voice":"alloy","language":"english","response_format":"wav"}' \
+            -o api_long_text.wav
+          test -s api_long_text.wav
+
+          kill $API_PID || true
+          echo "Long text API test passed"
+
       - name: Download 1.7B CustomVoice model
         run: python3 -c "from huggingface_hub import snapshot_download; snapshot_download('Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice', local_dir='models/Qwen3-TTS-12Hz-1.7B-CustomVoice')"
 
@@ -252,5 +288,8 @@ jobs:
             api_preset_stream.raw
             api_clone_nostream.wav
             api_clone_stream.raw
+            vivian_long_text.wav
+            clone_long_text.wav
+            api_long_text.wav
             vivian_urgent_1.7b.wav
             vivian_happy_1.7b.wav

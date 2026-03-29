@@ -13,6 +13,14 @@ pub const FIRST_CHUNK_MAX: usize = 60;
 /// Default maximum length for subsequent chunks.
 pub const REST_CHUNK_MAX: usize = 400;
 
+/// Chunk text into sentences for non-streaming TTS.
+///
+/// Uses uniform sentence-level splitting (no aggressive first-chunk behavior).
+/// For short text that fits in a single chunk, returns it as-is.
+pub fn chunk_text(text: &str, max_len: usize) -> Vec<String> {
+    chunk_text_streaming(text, max_len, max_len)
+}
+
 /// Chunk text for streaming TTS.
 ///
 /// The first chunk is split aggressively at clause boundaries (`,;:—-`) to
