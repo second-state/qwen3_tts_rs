@@ -18,81 +18,50 @@ Learn more:
 
 ## Quick Start
 
-### Option A: One-line installer
+Install binaries, models, and reference audio for your platform:
 
 ```bash
 curl -sSf https://raw.githubusercontent.com/second-state/qwen3_tts_rs/main/install.sh | bash
+cd qwen3_tts_rs
 ```
 
 The installer detects your OS, CPU, and NVIDIA GPU (if present), then sets up everything in `./qwen3_tts_rs/`.
 
-### Option B: Manual install from release
+### Text-to-Speech
 
-**1. Download pre-built binaries** from the [latest release](https://github.com/second-state/qwen3_tts_rs/releases/latest). Pick the archive for your platform:
-
-| Platform | Asset |
-|----------|-------|
-| macOS ARM64 (Apple Silicon) | `qwen3-tts-macos-aarch64.zip` |
-| Linux x86_64 | `qwen3-tts-linux-x86_64.zip` |
-| Linux x86_64 (CUDA) | `qwen3-tts-linux-x86_64-cuda.zip` |
-| Linux ARM64 | `qwen3-tts-linux-aarch64.zip` |
-| Linux ARM64 (CUDA/Jetson) | `qwen3-tts-linux-aarch64-cuda.zip` |
-
-```bash
-unzip qwen3-tts-<platform>.zip
-cd qwen3-tts-<platform>
-```
-
-The archive includes `tts`, `voice_clone`, `api_server` binaries, bundled `tokenizers/`, and (on Linux) `libtorch/`.
-
-**2. Download model weights** from HuggingFace:
-
-```bash
-pip install huggingface_hub
-# Named-speaker model (0.6B, recommended to start)
-huggingface-cli download Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice --local-dir models/Qwen3-TTS-12Hz-0.6B-CustomVoice
-```
-
-**3. Copy the tokenizer** into the model directory:
-
-```bash
-cp tokenizers/Qwen3-TTS-12Hz-0.6B-CustomVoice/tokenizer.json models/Qwen3-TTS-12Hz-0.6B-CustomVoice/
-```
-
-**4. Run!**
+Generate speech with a named speaker using the CustomVoice model:
 
 ```bash
 ./tts models/Qwen3-TTS-12Hz-0.6B-CustomVoice "Hello world, this is a test." Vivian english
 # Output: output.wav (24 kHz)
 ```
 
-### Run the API server
+### Voice Cloning
+
+Clone a voice from reference audio using the Base model (ICL mode):
+
+```bash
+./voice_clone models/Qwen3-TTS-12Hz-0.6B-Base reference_audio/trump.wav \
+  "Hello, this is a voice cloning test." english \
+  "Angered and appalled millions of Americans across the political spectrum"
+# Output: output_voice_clone.wav (24 kHz)
+```
+
+### API Server
+
+Start the OpenAI-compatible API server with the CustomVoice model:
 
 ```bash
 ./api_server models/Qwen3-TTS-12Hz-0.6B-CustomVoice --port 8080
 ```
 
-Then call the OpenAI-compatible endpoint:
+Then call the endpoint:
 
 ```bash
 curl -X POST http://localhost:8080/v1/audio/speech \
   -H "Content-Type: application/json" \
   -d '{"input": "Hello world!", "voice": "alloy"}' \
   -o output.wav
-```
-
-### Download additional models
-
-| Model | Use case | Download |
-|-------|----------|----------|
-| Qwen3-TTS-12Hz-0.6B-CustomVoice | Named speakers (default) | `huggingface-cli download Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice --local-dir models/Qwen3-TTS-12Hz-0.6B-CustomVoice` |
-| Qwen3-TTS-12Hz-1.7B-CustomVoice | Named speakers + instruction control | `huggingface-cli download Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice --local-dir models/Qwen3-TTS-12Hz-1.7B-CustomVoice` |
-| Qwen3-TTS-12Hz-0.6B-Base | Voice cloning | `huggingface-cli download Qwen/Qwen3-TTS-12Hz-0.6B-Base --local-dir models/Qwen3-TTS-12Hz-0.6B-Base` |
-
-Remember to copy the matching tokenizer for each model:
-
-```bash
-cp tokenizers/<model-name>/tokenizer.json models/<model-name>/
 ```
 
 ## Reference
