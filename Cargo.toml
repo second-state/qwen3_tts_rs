@@ -1,5 +1,5 @@
 [package]
-name = "qwen3_tts"
+name = "qwen_tts_rs"
 version = "0.2.0"
 edition = "2021"
 authors = ["Michael Yuan <michael@secondstate.io>"]

@@ -10,11 +10,11 @@
 //!   api_server ./models/Qwen3-TTS-12Hz-0.6B-CustomVoice --port 8080
 
 use clap::Parser;
-use qwen3_tts::api::routes::{self, AppState, Models};
-use qwen3_tts::audio_encoder::AudioEncoder;
-use qwen3_tts::inference::TTSInference;
-use qwen3_tts::speaker_encoder::SpeakerEncoder;
-use qwen3_tts::tensor::Device;
+use qwen_tts_rs::api::routes::{self, AppState, Models};
+use qwen_tts_rs::audio_encoder::AudioEncoder;
+use qwen_tts_rs::inference::TTSInference;
+use qwen_tts_rs::speaker_encoder::SpeakerEncoder;
+use qwen_tts_rs::tensor::Device;
 
 use axum::routing::{get, post};
 use axum::Router;
@@ -53,7 +53,7 @@ async fn main() -> anyhow::Result<()> {
     // Initialize MLX backend if feature enabled
     #[cfg(feature = "mlx")]
     {
-        qwen3_tts::backend::mlx::stream::init_mlx(true);
+        qwen_tts_rs::backend::mlx::stream::init_mlx(true);
         tracing::info!("MLX backend initialized (Metal GPU)");
     }
 

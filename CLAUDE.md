@@ -2,7 +2,7 @@
 
 ## Project Purpose
 
-Qwen3 TTS Rust (`qwen3_tts`) is a pure-Rust inference engine for the [Qwen3 TTS](https://huggingface.co/Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice) text-to-speech model family. It converts text to natural-sounding speech using transformer-based language models that generate codec tokens, which are then decoded to audio by a BigVGAN vocoder.
+Qwen3 TTS Rust (`qwen_tts_rs`) is a pure-Rust inference engine for the [Qwen3 TTS](https://huggingface.co/Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice) text-to-speech model family. It converts text to natural-sounding speech using transformer-based language models that generate codec tokens, which are then decoded to audio by a BigVGAN vocoder.
 
 The crate supports two computation backends:
 
