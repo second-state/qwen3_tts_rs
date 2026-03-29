@@ -136,15 +136,16 @@ ECAPA-TDNN speaker encoder that extracts x-vector speaker embeddings from refere
 |------|-------------|
 | `mod.rs` | Module declaration. |
 | `types.rs` | Request/response types: `SpeechRequest`, `SseAudioDelta`, `SseAudioDone`, `ApiError`, `HealthResponse`, `ModelsResponse`. Maps OpenAI voice names (alloy→serena, echo→ryan, etc.) to Qwen3 speakers. |
-| `routes.rs` | Axum route handlers. `POST /v1/audio/speech` dispatches to `speech_full` (returns complete WAV/PCM) or `speech_stream` (SSE with base64 PCM chunks). Voice cloning always uses ICL mode. `CloneData` stores speaker embedding as `Vec<f32>` for thread safety. |
-| `chunking.rs` | Text chunking for streaming. First chunk splits aggressively at clause boundaries (≤60 chars) for low time-to-first-audio; subsequent chunks split at sentence boundaries. |
+| `routes.rs` | Axum route handlers. `POST /v1/audio/speech` dispatches to `speech_full` (returns complete audio in any format) or `speech_stream` (SSE with base64 PCM chunks). Voice cloning always uses ICL mode. `CloneData` stores speaker embedding as `Vec<f32>` for thread safety. |
+| `encode.rs` | Audio encoding for multiple output formats. `encode_audio()` dispatches to format-specific encoders: WAV (via `write_wav_bytes`), raw PCM (16-bit LE), MP3 (128 kbps CBR, resampled to 44.1 kHz), FLAC (lossless 16-bit), OGG Opus (resampled to 48 kHz, 20ms frames, RFC 7845 headers). |
+| `chunking.rs` | Text chunking. `chunk_text_streaming()` splits aggressively at clause boundaries (≤60 chars) for first chunk, then sentence boundaries for rest. `chunk_text()` convenience wrapper uses uniform sentence-level splitting for non-streaming paths (CLI and API full responses). |
 
 ### `src/bin/` — Binary Targets
 
 | File | Description |
 |------|-------------|
-| `tts.rs` | CLI for preset-voice speech generation. Args: `<model_path> <text> <speaker> <language> [instruction]`. |
-| `voice_clone.rs` | CLI for ICL voice cloning. Args: `<model_path> <reference.wav> <text> <language> <reference_transcript>`. |
+| `tts.rs` | CLI for preset-voice speech generation. Args: `<model_path> <text> <speaker> <language> [instruction]`. Chunks long text at sentence boundaries (~400 chars), generates per chunk, concatenates waveforms. |
+| `voice_clone.rs` | CLI for ICL voice cloning. Args: `<model_path> <reference.wav> <text> <language> <reference_transcript>`. Chunks synthesis text (not reference text), reuses pre-computed reference data across chunks. |
 | `api_server.rs` | Axum HTTP server. Loads model, optional speaker encoder, optional audio encoder. Serves `/health`, `/v1/models`, `/v1/audio/speech`. |
 
 ### `src/backend/` — MLX Backend (only compiled with `--features mlx`)
@@ -177,6 +178,45 @@ All voice cloning (both CLI and API server) uses **ICL (In-Context Learning)** m
 When the speaker encoder is available (Base models), it extracts an x-vector embedding from the reference audio. When absent (CustomVoice models), a **zero embedding** is used as a fallback. This allows voice cloning to work with any model that has an audio encoder.
 
 **API server note:** `CloneData` stores speaker embeddings as `Vec<f32>` instead of `Tensor` because tch's raw C pointers are not `Send + Sync`, which is required by `tokio::task::spawn_blocking`. The tensor is reconstructed via `Tensor::from_slice_f32()` inside the blocking task.
+
+---
+
+## Audio Encoding: Multi-Format Output
+
+The API server supports 6 output formats via `src/api/encode.rs`. Non-streaming responses can use any format; streaming always uses raw PCM.
+
+### Format Details
+
+| Format | Crate | Sample Rate | Encoding | Content-Type |
+|--------|-------|-------------|----------|--------------|
+| WAV | `hound` | Native (24 kHz) | 16-bit signed PCM | `audio/wav` |
+| PCM | (built-in) | Native (24 kHz) | 16-bit signed LE, raw | `audio/pcm` |
+| MP3 | `mp3lame-encoder` | Resampled to 44.1 kHz | 128 kbps CBR, MPEG-1 Layer III | `audio/mpeg` |
+| FLAC | `flacenc` | Native (24 kHz) | 16-bit lossless | `audio/flac` |
+| OGG Opus | `audiopus` + `ogg` | Resampled to 48 kHz | 20ms frames, RFC 7845 container | `audio/ogg` |
+
+### Crate API Gotchas
+
+- **mp3lame-encoder**: Use `MonoPcm(&pcm)` for mono input (not `InterleavedPcm`). Use `encode_to_vec()`/`flush_to_vec::<FlushNoGap>()` (not `encode()`/`flush()`). Bitrate enum is `Bitrate::Kbps128`.
+- **flacenc**: Output must use `ByteSink` (not `Vec<u8>` — `BitRepr` is not implemented for `Vec`). Use `config.block_size` (not `config.block_sizes[0]`). `into_verified()` error is a tuple `(_enc, e)`.
+- **audiopus**: Use `encode_float()` with `&[f32]` input (not `encode()` with `&[i16]`). Opus requires exactly 48 kHz input.
+- **ogg**: Use `ogg::PacketWriter` (not `ogg::writing::PacketWriter`).
+- **audiopus_sys**: Must use `features = ["static"]` in `Cargo.toml` to statically link libopus, avoiding system dependency on `libopus-dev`/`pkg-config`.
+
+### Resampling
+
+MP3 and Opus require specific sample rates (44.1 kHz and 48 kHz respectively). A simple linear interpolation resampler (`resample_linear`) in `encode.rs` handles this conversion from the native 24 kHz. This is separate from the `rubato`-based resampler in `audio.rs` which is used for reference audio preprocessing.
+
+---
+
+## Long Text Chunking
+
+All three binaries and the API non-streaming path chunk long text at sentence boundaries (~400 chars per chunk) to avoid hitting the model's `max_codes=2048` limit (~170s of audio). Each chunk is generated independently and the resulting waveforms are concatenated.
+
+- **`chunk_text(text, max_len)`** — Uniform sentence-level splitting for CLI and API full responses.
+- **`chunk_text_streaming(text, first_max, rest_max)`** — Aggressive clause-level first chunk (≤60 chars) for low time-to-first-audio in streaming.
+- Voice cloning chunks only the synthesis text; reference audio/embedding data is computed once and reused across all chunks.
+- For short text that fits in a single chunk, behavior is unchanged (no overhead).
 
 ---
 
@@ -301,12 +341,13 @@ Tests cover: core types (Language, Speaker, AudioInput), audio utilities (URL de
 
 ### 4. API Server Tests (in CI integration workflow)
 
-The integration CI starts the API server once and runs 4 tests:
+The integration CI starts the API server once and runs 5 tests:
 
 1. **Preset voice, non-streaming WAV** — `POST /v1/audio/speech` with `voice: "alloy"`, `response_format: "wav"`
-2. **Preset voice, streaming PCM** — same with `stream: true`, `response_format: "pcm"`
-3. **Voice clone (ICL), non-streaming WAV** — includes `audio_sample` (base64) and `audio_sample_text`
-4. **Voice clone (ICL), streaming PCM** — same with `stream: true`
+2. **Preset voice, non-streaming MP3** — same with `response_format: "mp3"`
+3. **Preset voice, streaming PCM** — same with `stream: true`, `response_format: "pcm"`
+4. **Voice clone (ICL), non-streaming WAV** — includes `audio_sample` (base64) and `audio_sample_text`
+5. **Voice clone (ICL), streaming PCM** — same with `stream: true`
 
 Voice clone requests use `curl -d @clone_request.json` (file-based payload) to avoid shell argument length limits with base64-encoded audio.
 
@@ -321,7 +362,8 @@ Voice clone requests use `curl -d @clone_request.json` (file-based payload) to a
 ### 6. CI Structure
 
 - **`.github/workflows/ci.yml`** — Build-only, triggered on push/PR. Compiles library + binaries + examples on all 3 platforms. No model downloads or inference.
-- **`.github/workflows/integration.yml`** — Full integration tests, manual `workflow_dispatch` only. Downloads models, generates tokenizer, runs all integration tests including API server tests.
+- **`.github/workflows/integration.yml`** — Full integration tests, manual `workflow_dispatch` only. Downloads models, generates tokenizer, runs all integration tests including API server tests (WAV, MP3, streaming PCM, voice clone).
+- **`.github/workflows/release.yml`** — Release packaging, triggered on GitHub release publish. Builds for 5 targets (Linux x86_64, x86_64 CUDA, ARM64, ARM64 CUDA, macOS ARM64). Packages `tts`, `voice_clone`, `api_server` binaries with pre-generated tokenizers and platform-specific runtime (libtorch or MLX metallib).
 
 ---
 
@@ -340,3 +382,11 @@ Voice clone requests use `curl -d @clone_request.json` (file-based payload) to a
 6. **Verify FFI signatures at the source.** Auto-generated or hand-written FFI bindings often have subtle mismatches (wrong types, missing parameters). Always check against the C header files.
 
 7. **WAV format consistency matters.** `write_wav_bytes` (API server) originally used 32-bit float WAV while `write_wav_file` (CLI) used 16-bit signed integer. Many audio players handle 32-bit float WAV differently, causing quieter or broken playback. Both paths must use the same 16-bit PCM format with `[-1, 1]` clamping.
+
+8. **Audio encoding crate APIs are poorly documented.** `mp3lame-encoder`, `flacenc`, and `audiopus` have minimal docs and non-obvious APIs (e.g., `MonoPcm` vs `InterleavedPcm`, `ByteSink` vs `Vec<u8>`, `encode_float` vs `encode`). The reference implementations in `voxtral_tts_rs` and `kitten_tts_rs` were essential for getting working code.
+
+9. **Static linking for Opus avoids CI headaches.** Using `audiopus_sys = { features = ["static"] }` statically compiles libopus from source, eliminating the need for `libopus-dev` or `pkg-config` on build machines. All audio encoding is pure Rust with no system dependencies.
+
+10. **MP3 requires MPEG-1 standard sample rates.** The model outputs 24 kHz audio, but MPEG-1 Layer III only supports 32/44.1/48 kHz. Resampling to 44.1 kHz before encoding is mandatory for maximum player compatibility.
+
+11. **Long text chunking must be consistent across all paths.** CLI binaries, API non-streaming, and API streaming all need chunking to avoid `max_codes` truncation. The streaming path already had it; adding it to the other three paths required careful reuse of the same `chunk_text` infrastructure.
