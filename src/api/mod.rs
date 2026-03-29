@@ -4,5 +4,6 @@
 //! OpenAI-compatible TTS API server module.
 
 pub mod chunking;
+pub mod encode;
 pub mod routes;
 pub mod types;

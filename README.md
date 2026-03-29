@@ -162,9 +162,9 @@ api_server <model_path> [--host 127.0.0.1] [--port 8080]
 | `input` | string | (required) | Text to synthesize (max 4096 chars) |
 | `voice` | string | `"alloy"` | OpenAI name or Qwen3 speaker name (see mapping below) |
 | `model` | string | — | Accepted for compatibility, ignored |
-| `response_format` | string | `"wav"` | `"wav"` or `"pcm"` |
+| `response_format` | string | `"wav"` | `"wav"`, `"pcm"`, `"mp3"`, `"flac"`, `"ogg"`, or `"opus"` |
 | `speed` | float | 1.0 | Speed multiplier (0.25–4.0) |
-| `stream` | bool | false | Enable SSE streaming (requires `response_format: "pcm"`) |
+| `stream` | bool | false | Enable SSE streaming (requires `"pcm"`) |
 | `language` | string | `"english"` | `english`, `chinese`, `japanese`, `korean`, `auto` |
 | `instructions` | string | — | Voice style instruction (1.7B models only) |
 | `audio_sample` | string | — | Base64-encoded reference WAV for voice cloning |

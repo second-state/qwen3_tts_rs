@@ -4,8 +4,9 @@
 //! Route handlers for the OpenAI-compatible TTS API.
 
 use crate::api::chunking::{chunk_text, chunk_text_streaming, FIRST_CHUNK_MAX, REST_CHUNK_MAX};
+use crate::api::encode::encode_audio;
 use crate::api::types::*;
-use crate::audio::{load_wav_bytes, resample, write_wav_bytes};
+use crate::audio::{load_wav_bytes, resample};
 use crate::audio_encoder::AudioEncoder;
 use crate::inference::TTSInference;
 use crate::speaker_encoder::SpeakerEncoder;
@@ -72,10 +73,12 @@ pub async fn speech(
     }
 
     let format = req.response_format.to_lowercase();
-    if format != "wav" && format != "pcm" {
-        return Err(ApiError::bad_request(
-            "Unsupported response_format. Use \"wav\" or \"pcm\"",
-        ));
+    let supported_formats = ["wav", "pcm", "mp3", "flac", "ogg", "opus"];
+    if !supported_formats.contains(&format.as_str()) {
+        return Err(ApiError::bad_request(format!(
+            "Unsupported response_format '{}'. Supported: wav, pcm, mp3, flac, ogg, opus",
+            format
+        )));
     }
 
     if req.stream {
@@ -107,23 +110,10 @@ async fn speech_full(
     // Apply speed adjustment
     let waveform = apply_speed(&waveform, speed);
 
-    if format == "wav" {
-        let wav_bytes = write_wav_bytes(&waveform, sample_rate)
-            .map_err(|e| ApiError::internal(format!("WAV encoding error: {}", e)))?;
-        Ok((
-            [(header::CONTENT_TYPE, "audio/wav")],
-            wav_bytes,
-        )
-            .into_response())
-    } else {
-        // PCM: 16-bit signed LE mono
-        let pcm = samples_to_pcm_bytes(&waveform);
-        Ok((
-            [(header::CONTENT_TYPE, "audio/pcm")],
-            pcm,
-        )
-            .into_response())
-    }
+    let (encoded, content_type) = encode_audio(&waveform, sample_rate, &format)
+        .map_err(|e| ApiError::internal(format!("Audio encoding error: {}", e)))?;
+
+    Ok(([(header::CONTENT_TYPE, content_type)], encoded).into_response())
 }
 
 /// Streaming speech generation — returns SSE with base64 PCM chunks.

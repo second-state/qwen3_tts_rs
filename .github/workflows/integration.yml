@@ -160,6 +160,13 @@ jobs:
             -o api_preset_nostream.wav
           test -s api_preset_nostream.wav
 
+          echo "=== API: preset voice, non-streaming, MP3 ==="
+          curl -sf -X POST http://127.0.0.1:8080/v1/audio/speech \
+            -H "Content-Type: application/json" \
+            -d '{"input":"Hello, this is an MP3 format test.","voice":"alloy","language":"english","response_format":"mp3"}' \
+            -o api_preset_nostream.mp3
+          test -s api_preset_nostream.mp3
+
           echo "=== API: preset voice, streaming, PCM ==="
           curl -sf -X POST http://127.0.0.1:8080/v1/audio/speech \
             -H "Content-Type: application/json" \
@@ -202,7 +209,7 @@ jobs:
           test -s api_clone_stream.raw
 
           kill $API_PID || true
-          echo "All 4 API server tests passed"
+          echo "All 5 API server tests passed"
 
       - name: Long text chunking - tts
         run: |
@@ -285,6 +292,7 @@ jobs:
             ryan_reference.wav
             output_ryan_clone_icl.wav
             api_preset_nostream.wav
+            api_preset_nostream.mp3
             api_preset_stream.raw
             api_clone_nostream.wav
             api_clone_stream.raw

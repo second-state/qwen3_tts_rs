@@ -25,6 +25,11 @@ serde_json = "1.0"
 # Audio processing
 hound = "3.5"
 rubato = "0.16"
+mp3lame-encoder = "0.2"
+flacenc = "0.5"
+audiopus = "0.2"
+audiopus_sys = { version = "0.1", features = ["static"] }
+ogg = "0.9"
 
 # HTTP and file handling
 base64 = "0.22"

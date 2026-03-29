@@ -141,7 +141,7 @@ jobs:
       - name: Package release
         run: |
           mkdir ${{ matrix.asset-name }}
-          cp target/release/tts target/release/voice_clone ${{ matrix.asset-name }}/
+          cp target/release/tts target/release/voice_clone target/release/api_server ${{ matrix.asset-name }}/
           cp -r tokenizers ${{ matrix.asset-name }}/tokenizers
           if [ "${{ matrix.backend }}" = "mlx" ]; then
             cp target/release/build/qwen3*tts*rs-*/out/lib/mlx.metallib ${{ matrix.asset-name }}/
