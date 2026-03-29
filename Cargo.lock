@@ -1382,8 +1382,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "qwen3_tts"
-version = "0.1.5"
+name = "qwen3-tts-rs"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "async-stream",
