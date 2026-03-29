@@ -338,3 +338,5 @@ Voice clone requests use `curl -d @clone_request.json` (file-based payload) to a
 5. **First-chunk-fast streaming.** Splitting the first text chunk at clause boundaries (≤60 chars) rather than sentence boundaries dramatically reduces time-to-first-audio in the streaming API.
 
 6. **Verify FFI signatures at the source.** Auto-generated or hand-written FFI bindings often have subtle mismatches (wrong types, missing parameters). Always check against the C header files.
+
+7. **WAV format consistency matters.** `write_wav_bytes` (API server) originally used 32-bit float WAV while `write_wav_file` (CLI) used 16-bit signed integer. Many audio players handle 32-bit float WAV differently, causing quieter or broken playback. Both paths must use the same 16-bit PCM format with `[-1, 1]` clamping.
