@@ -300,9 +300,12 @@ See the [API documentation on docs.rs](https://docs.rs/qwen3-tts-rs) for library
 
 ## Performance (Apple M4 Mac, MLX backend)
 
-Benchmarks with the **0.6B CustomVoice** model on Apple M4 MacBook Pro.
+Test sentences: ~15–20 words in English ("The quick brown fox..." / "Scientists have discovered...") and Chinese.
+**RTF** = Real-Time Factor (wall time / audio duration). Lower is better; < 1.0 means faster than real-time.
 
-### CLI (`tts` / `voice_clone`)
+### 0.6B CustomVoice
+
+#### CLI (`tts` / `voice_clone`)
 
 | Test | Speaker | Language | Audio | Wall Time | RTF |
 |------|---------|----------|-------|-----------|-----|
@@ -311,7 +314,7 @@ Benchmarks with the **0.6B CustomVoice** model on Apple M4 MacBook Pro.
 | Preset voice | Vivian | Chinese | 6.64s | 11.26s | 1.70x |
 | Voice clone (ICL) | ref audio | English | 7.04s | 16.77s | 2.38x |
 
-### API server (after warmup)
+#### API server (after warmup)
 
 | Test | Voice | Mode | Audio | Wall Time | RTF |
 |------|-------|------|-------|-----------|-----|
@@ -320,9 +323,31 @@ Benchmarks with the **0.6B CustomVoice** model on Apple M4 MacBook Pro.
 | Streaming PCM | alloy (serena) | stream | ~6.4s | 10.22s | ~1.60x |
 | Voice clone WAV | alloy + ref | full | 9.04s | 20.11s | 2.22x |
 
-**RTF** = Real-Time Factor (wall time / audio duration). Lower is better; < 1.0 means faster than real-time.
+### 1.7B CustomVoice
 
-Test sentences: ~15–20 words in English ("The quick brown fox..." / "Scientists have discovered...") and Chinese.
+#### CLI (`tts`)
+
+| Test | Speaker | Language | Audio | Wall Time | RTF |
+|------|---------|----------|-------|-----------|-----|
+| Preset voice | Vivian | English | 6.24s | 18.92s | 3.03x |
+| Preset voice | Ryan | English | 8.64s | 27.50s | 3.18x |
+| Preset voice | Vivian | Chinese | 6.24s | 18.31s | 2.93x |
+| Preset + instruction | Vivian | English | 8.80s | 29.97s | 3.41x |
+
+#### API server (after warmup)
+
+| Test | Voice | Mode | Audio | Wall Time | RTF |
+|------|-------|------|-------|-----------|-----|
+| Non-streaming WAV | alloy (serena) | full | 5.52s | 15.14s | 2.74x |
+| Non-streaming WAV | echo (ryan) | full | 8.64s | 26.31s | 3.05x |
+| Streaming PCM | alloy (serena) | stream | 8.16s | 19.79s | 2.43x |
+
+### 0.6B vs 1.7B comparison
+
+| Metric | 0.6B avg RTF | 1.7B avg RTF | Slowdown |
+|--------|-------------|-------------|----------|
+| CLI preset voice | 1.76x | 3.05x | ~1.7x |
+| API non-streaming | 1.57x | 2.90x | ~1.8x |
 
 ## Architecture
 
